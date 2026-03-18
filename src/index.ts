@@ -2,7 +2,6 @@
 // Split secrets into threshold-of-n shares using polynomial interpolation
 // Shares can be encoded as BIP-39 words for human-readable exchange
 
-import { randomFillSync } from 'node:crypto';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { wordlist as BIP39_WORDLIST } from '@scure/bip39/wordlists/english.js';
 
@@ -173,7 +172,7 @@ export function splitSecret(
     coeffs[0] = secret[byteIdx]!;
 
     const rand = new Uint8Array(threshold - 1);
-    randomFillSync(rand);
+    crypto.getRandomValues(rand);
     for (let j = 1; j < threshold; j++) {
       coeffs[j] = rand[j - 1]!;
     }
