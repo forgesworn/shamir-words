@@ -356,6 +356,18 @@ describe('shamir-words', () => {
       const appended = [...words, 'abandon'];
       expect(() => wordsToShare(appended)).toThrow('Expected');
     });
+
+    it('rejects last-word padding bit tampering', () => {
+      // 1-byte secret: 3 bytes encoded = 24 bits = 3 words (33 bits), 9 padding bits
+      const secret = new Uint8Array([0x42]);
+      const shares = splitSecret(secret, 2, 3);
+      const words = shareToWords(shares[0]);
+      // Flip a padding bit: original last word has 9 zero padding bits
+      // XOR the index with 1 to flip the lowest padding bit
+      const lastIdx = BIP39_WORDLIST.indexOf(words[words.length - 1]);
+      const tampered = [...words.slice(0, -1), BIP39_WORDLIST[lastIdx ^ 1]];
+      expect(() => wordsToShare(tampered)).toThrow('padding bits');
+    });
   });
 
   describe('security: reconstructSecret zero-length data', () => {

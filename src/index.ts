@@ -362,6 +362,11 @@ export function wordsToShare(words: string[]): ShamirShare {
     }
   }
 
+  // Verify padding bits in the last word are zero (shareToWords always zero-pads)
+  if (bits > 0 && accumulator !== 0) {
+    throw new ShamirValidationError('Non-zero padding bits detected — word list may be corrupted');
+  }
+
   // Need at least 3 bytes: 1 data-length + 1 ID + 1 data byte
   if (byteList.length < 3) {
     throw new ShamirValidationError('Word list too short — need at least data-length + ID + 1 data byte');
