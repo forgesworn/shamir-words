@@ -84,18 +84,18 @@ function gf256MulSlow(a: number, b: number): number {
 }
 
 /** Addition in GF(256) is XOR */
-export function gf256Add(a: number, b: number): number {
+function gf256Add(a: number, b: number): number {
   return a ^ b;
 }
 
 /** Multiplication in GF(256) using log/exp tables */
-export function gf256Mul(a: number, b: number): number {
+function gf256Mul(a: number, b: number): number {
   if (a === 0 || b === 0) return 0;
   return EXP[(LOG[a] + LOG[b]) % 255];
 }
 
 /** Multiplicative inverse in GF(256) */
-export function gf256Inv(a: number): number {
+function gf256Inv(a: number): number {
   if (a === 0) throw new ShamirCryptoError('No inverse for zero in GF(256)');
   return EXP[(255 - LOG[a]) % 255];
 }
@@ -227,6 +227,9 @@ export function reconstructSecret(
   }
 
   const secretLen = used[0].data.length;
+  if (secretLen === 0) {
+    throw new ShamirValidationError('Share data must not be empty');
+  }
   for (const share of used) {
     if (share.data.length !== secretLen) {
       throw new ShamirValidationError('Inconsistent share lengths — shares may be from different secrets');
@@ -332,7 +335,11 @@ export function wordsToShare(words: string[]): ShamirShare {
   // Convert words to 11-bit indices using O(1) map lookup
   const indices: number[] = [];
   for (let i = 0; i < words.length; i++) {
-    const idx = BIP39_INDEX.get(words[i].toLowerCase());
+    const w = words[i];
+    if (typeof w !== 'string') {
+      throw new ShamirValidationError(`Word at position ${i + 1} must be a string`);
+    }
+    const idx = BIP39_INDEX.get(w.trim().toLowerCase());
     if (idx === undefined) {
       throw new ShamirValidationError(`Unknown BIP-39 word at position ${i + 1}`);
     }
@@ -367,6 +374,14 @@ export function wordsToShare(words: string[]): ShamirShare {
   }
   if (2 + dataLength > byteList.length) {
     throw new ShamirValidationError('Word list too short for encoded data length');
+  }
+
+  // Enforce canonical encoding: word count must match expected for this data length
+  const expectedWords = Math.ceil((2 + dataLength) * 8 / 11);
+  if (words.length !== expectedWords) {
+    throw new ShamirValidationError(
+      `Expected ${expectedWords} words for data length ${dataLength}, got ${words.length}`,
+    );
   }
 
   const id = byteList[1];

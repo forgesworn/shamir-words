@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  gf256Add,
-  gf256Mul,
-  gf256Inv,
   splitSecret,
   reconstructSecret,
   shareToWords,
@@ -24,41 +21,6 @@ describe('shamir-words', () => {
     0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88,
     0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00,
   ]);
-
-  describe('GF(256) arithmetic', () => {
-    it('addition is XOR', () => {
-      expect(gf256Add(0x57, 0x83)).toBe(0x57 ^ 0x83);
-      expect(gf256Add(0, 0xff)).toBe(0xff);
-      expect(gf256Add(0xff, 0xff)).toBe(0);
-    });
-
-    it('multiplication by 1 is identity', () => {
-      for (let i = 0; i < 256; i++) {
-        expect(gf256Mul(i, 1)).toBe(i);
-      }
-    });
-
-    it('multiplication by 0 is 0', () => {
-      for (let i = 0; i < 256; i++) {
-        expect(gf256Mul(i, 0)).toBe(0);
-        expect(gf256Mul(0, i)).toBe(0);
-      }
-    });
-
-    it('multiplication is commutative', () => {
-      expect(gf256Mul(0x57, 0x83)).toBe(gf256Mul(0x83, 0x57));
-    });
-
-    it('inverse is correct: a * inv(a) = 1', () => {
-      for (let i = 1; i < 256; i++) {
-        expect(gf256Mul(i, gf256Inv(i))).toBe(1);
-      }
-    });
-
-    it('inverse of zero throws', () => {
-      expect(() => gf256Inv(0)).toThrow('No inverse for zero');
-    });
-  });
 
   describe('split and reconstruct', () => {
     it('reconstructs a 16-byte secret with 2-of-3', () => {
@@ -373,6 +335,80 @@ describe('shamir-words', () => {
       const words = shareToWords(shares[0]);
       const truncated = words.slice(0, 2);
       expect(() => wordsToShare(truncated)).toThrow();
+    });
+
+    it('throws on non-string word element', () => {
+      expect(() => wordsToShare([42 as unknown as string, 'abandon'])).toThrow('must be a string');
+    });
+
+    it('handles words with leading/trailing whitespace', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const words = shareToWords(shares[0]);
+      const paddedWords = words.map(w => `  ${w}  `);
+      const recovered = wordsToShare(paddedWords);
+      expect(recovered.id).toBe(shares[0].id);
+      expect(recovered.data).toEqual(shares[0].data);
+    });
+
+    it('rejects appended words (non-canonical encoding)', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const words = shareToWords(shares[0]);
+      const appended = [...words, 'abandon'];
+      expect(() => wordsToShare(appended)).toThrow('Expected');
+    });
+  });
+
+  describe('security: reconstructSecret zero-length data', () => {
+    it('rejects shares with zero-length data', () => {
+      const emptyShares = [
+        { id: 1, data: new Uint8Array(0) },
+        { id: 2, data: new Uint8Array(0) },
+      ];
+      expect(() => reconstructSecret(emptyShares, 2)).toThrow('must not be empty');
+    });
+  });
+
+  describe('security: boundary conditions', () => {
+    it('reconstruction with wrong threshold produces wrong result', () => {
+      const shares = splitSecret(secret16, 3, 5);
+      const wrong = reconstructSecret(shares.slice(0, 2), 2);
+      expect(wrong).not.toEqual(secret16);
+    });
+
+    it('n-of-n scheme works (2-of-2)', () => {
+      const shares = splitSecret(secret16, 2, 2);
+      const recovered = reconstructSecret(shares, 2);
+      expect(recovered).toEqual(secret16);
+    });
+
+    it('all-zero secret roundtrips correctly', () => {
+      const zeroSecret = new Uint8Array(16);
+      const shares = splitSecret(zeroSecret, 2, 3);
+      const recovered = reconstructSecret(shares, 2);
+      expect(recovered).toEqual(zeroSecret);
+    });
+
+    it('all-0xFF secret roundtrips correctly', () => {
+      const ffSecret = new Uint8Array(16).fill(0xff);
+      const shares = splitSecret(ffSecret, 2, 3);
+      const recovered = reconstructSecret(shares, 2);
+      expect(recovered).toEqual(ffSecret);
+    });
+
+    it('255-byte secret roundtrips through full pipeline', () => {
+      const maxSecret = new Uint8Array(255);
+      for (let i = 0; i < 255; i++) maxSecret[i] = i & 0xff;
+      const shares = splitSecret(maxSecret, 2, 3);
+      const wordShares = shares.map(shareToWords);
+      const recoveredShares = wordShares.map(wordsToShare);
+      const recovered = reconstructSecret(recoveredShares, 2);
+      expect(recovered).toEqual(maxSecret);
+    });
+
+    it('extra shares beyond threshold still reconstruct correctly', () => {
+      const shares = splitSecret(secret16, 3, 5);
+      const recovered = reconstructSecret(shares, 3);
+      expect(recovered).toEqual(secret16);
     });
   });
 
