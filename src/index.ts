@@ -152,6 +152,9 @@ export function splitSecret(
   if (shares > 255) {
     throw new ShamirValidationError('Number of shares must be <= 255');
   }
+  if (secret.length > 255) {
+    throw new ShamirValidationError('Secret must be at most 255 bytes for BIP-39 word encoding');
+  }
 
   const secretLen = secret.length;
   const result: ShamirShare[] = [];
@@ -195,7 +198,7 @@ export function reconstructSecret(
   shares: ShamirShare[],
   threshold: number,
 ): Uint8Array {
-  if (!Number.isInteger(threshold) || threshold < 2) {
+  if (!Number.isSafeInteger(threshold) || threshold < 2) {
     throw new ShamirValidationError('Threshold must be an integer >= 2');
   }
   if (!Array.isArray(shares) || shares.length < threshold) {
@@ -318,6 +321,9 @@ export function shareToWords(share: ShamirShare): string[] {
  * Expects format: [data_length, share_id, ...data] encoded as 11-bit groups.
  */
 export function wordsToShare(words: string[]): ShamirShare {
+  if (!Array.isArray(words)) {
+    throw new ShamirValidationError('Words must be an array of strings');
+  }
   if (words.length === 0) throw new ShamirValidationError('Cannot decode empty word list');
   if (words.length > 256) {
     throw new ShamirValidationError('Word count exceeds maximum (256)');

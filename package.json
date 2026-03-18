@@ -1,6 +1,6 @@
 {
   "name": "@forgesworn/shamir-words",
-  "version": "1.0.0",
+  "version": "0.0.0-development",
   "description": "Shamir's Secret Sharing over GF(256) with BIP-39 word encoding for human-readable share exchange",
   "type": "module",
   "main": "./dist/index.js",

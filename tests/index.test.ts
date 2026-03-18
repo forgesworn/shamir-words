@@ -363,5 +363,33 @@ describe('shamir-words', () => {
     it('throws on unknown BIP-39 word with position info', () => {
       expect(() => wordsToShare(['abandon', 'notaword', 'ability'])).toThrow('position 2');
     });
+
+    it('throws on non-array input', () => {
+      expect(() => wordsToShare('abandon ability' as unknown as string[])).toThrow('must be an array');
+    });
+
+    it('throws on truncated word list', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const words = shareToWords(shares[0]);
+      const truncated = words.slice(0, 2);
+      expect(() => wordsToShare(truncated)).toThrow();
+    });
+  });
+
+  describe('security: secret length limits', () => {
+    it('splitSecret rejects secrets > 255 bytes', () => {
+      const big = new Uint8Array(256);
+      expect(() => splitSecret(big, 2, 3)).toThrow('at most 255 bytes');
+    });
+
+    it('roundtrips a 200-byte secret through full pipeline', () => {
+      const secret = new Uint8Array(200);
+      for (let i = 0; i < 200; i++) secret[i] = (i * 11 + 3) & 0xff;
+      const shares = splitSecret(secret, 2, 3);
+      const wordShares = shares.map(shareToWords);
+      const recoveredShares = wordShares.map(wordsToShare);
+      const recovered = reconstructSecret(recoveredShares, 2);
+      expect(recovered).toEqual(secret);
+    });
   });
 });
