@@ -395,6 +395,22 @@ describe('shamir-words', () => {
       const tampered = [...words.slice(0, -1), BIP39_WORDLIST[lastIdx ^ 1]!];
       expect(() => wordsToShare(tampered)).toThrow();
     });
+
+    it('rejects non-canonical last word with altered phantom-byte padding', () => {
+      // For data [1,2,3] id=1 threshold=2, payload+checksum is 7 bytes = 56 bits,
+      // which needs ceil(56/11) = 6 words = 66 bits, leaving 10 padding bits.
+      // Changing the last word to a different one with the same upper bit but
+      // different padding bits must be rejected.
+      const share: ShamirShare = { id: 1, threshold: 2, data: new Uint8Array([1, 2, 3]) };
+      const canonical = shareToWords(share);
+      const lastIdx = BIP39_WORDLIST.indexOf(canonical[canonical.length - 1]!);
+      // Flip a low padding bit (bit 0) — same upper bits, different padding
+      const altIdx = lastIdx ^ 0x02;
+      if (altIdx < BIP39_WORDLIST.length && altIdx !== lastIdx) {
+        const altered = [...canonical.slice(0, -1), BIP39_WORDLIST[altIdx]!];
+        expect(() => wordsToShare(altered)).toThrow();
+      }
+    });
   });
 
   describe('security: reconstructSecret zero-length data', () => {
@@ -408,10 +424,17 @@ describe('shamir-words', () => {
   });
 
   describe('security: boundary conditions', () => {
-    it('reconstruction with wrong threshold produces wrong result', () => {
+    it('throws when caller threshold mismatches embedded share threshold', () => {
       const shares = splitSecret(secret16, 3, 5);
-      const wrong = reconstructSecret(shares.slice(0, 2), 2);
-      expect(wrong).not.toEqual(secret16);
+      // Caller says threshold=2 but shares carry threshold=3
+      expect(() => reconstructSecret(shares.slice(0, 2), 2)).toThrow('does not match supplied threshold');
+    });
+
+    it('throws when a share has a mutated threshold field', () => {
+      const shares = splitSecret(secret16, 3, 5);
+      const mutated = shares.slice(0, 3).map(s => ({ ...s }));
+      mutated[1]!.threshold = 5; // tamper one share
+      expect(() => reconstructSecret(mutated, 3)).toThrow('does not match supplied threshold');
     });
 
     it('n-of-n scheme works (2-of-2)', () => {

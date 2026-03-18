@@ -2,7 +2,7 @@
 // Split secrets into threshold-of-n shares using polynomial interpolation
 // Shares can be encoded as BIP-39 words for human-readable exchange
 
-import { randomBytes } from '@noble/hashes/utils.js';
+import { randomFillSync } from 'node:crypto';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { wordlist as BIP39_WORDLIST } from '@scure/bip39/wordlists/english.js';
 
@@ -172,7 +172,8 @@ export function splitSecret(
     const coeffs = new Uint8Array(threshold);
     coeffs[0] = secret[byteIdx]!;
 
-    const rand = randomBytes(threshold - 1);
+    const rand = new Uint8Array(threshold - 1);
+    randomFillSync(rand);
     for (let j = 1; j < threshold; j++) {
       coeffs[j] = rand[j - 1]!;
     }
@@ -224,6 +225,11 @@ export function reconstructSecret(
     }
     if (ids.has(share.id)) {
       throw new ShamirValidationError('Duplicate share IDs detected — each share must have a unique ID');
+    }
+    if (Number.isInteger(share.threshold) && share.threshold !== threshold) {
+      throw new ShamirValidationError(
+        `Share threshold (${share.threshold}) does not match supplied threshold (${threshold})`,
+      );
     }
     ids.add(share.id);
   }
@@ -396,6 +402,13 @@ export function wordsToShare(words: string[]): ShamirShare {
   const totalExpected = 4 + dataLength;
   if (totalExpected > byteList.length) {
     throw new ShamirValidationError('Word list too short for encoded data length');
+  }
+
+  // Verify phantom bytes (decoded from padding bits) are zero — ensures canonical encoding
+  for (let i = totalExpected; i < byteList.length; i++) {
+    if (byteList[i] !== 0) {
+      throw new ShamirValidationError('Non-zero padding bits detected — word list may be corrupted');
+    }
   }
 
   // Enforce canonical encoding: word count must match expected
