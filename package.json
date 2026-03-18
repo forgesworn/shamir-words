@@ -38,6 +38,7 @@
   "engines": {
     "node": ">=18"
   },
+  "homepage": "https://github.com/forgesworn/shamir-words",
   "repository": {
     "type": "git",
     "url": "https://github.com/forgesworn/shamir-words.git"

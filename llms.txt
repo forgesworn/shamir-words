@@ -1,0 +1,51 @@
+# shamir-words
+
+> Backing up cryptographic keys safely requires splitting them so no single
+> copy is a point of failure — but raw byte shares are error-prone to
+> transcribe. shamir-words is a TypeScript library that splits secrets using
+> Shamir's Secret Sharing over GF(256) and encodes each share as BIP-39
+> English words, making shares human-readable, speakable, and checksum-verified.
+
+shamir-words is for developers building key backup, social recovery, or
+threshold-access systems who need shares that humans can handle without
+mistakes. It uses only audited cryptographic dependencies (@noble/hashes,
+@scure/bip39) and provides full TypeScript type safety.
+
+## Getting Started
+
+Install:
+
+```bash
+npm install @forgesworn/shamir-words
+```
+
+Split and reconstruct:
+
+```typescript
+import { splitSecret, reconstructSecret, shareToWords, wordsToShare } from '@forgesworn/shamir-words';
+
+const secret = new Uint8Array([0xde, 0xad, 0xbe, 0xef]);
+const shares = splitSecret(secret, 2, 3);        // 2-of-3 threshold
+const words = shares.map(shareToWords);           // word lists
+const decoded = words.map(wordsToShare);          // back to shares
+const recovered = reconstructSecret(decoded, 2);  // original secret
+```
+
+## Key Concepts
+
+- **Shamir's Secret Sharing** — splits a secret into n shares where any t (threshold) can reconstruct it, but fewer than t reveal nothing.
+- **GF(256)** — Galois Field arithmetic (same field as AES) enabling byte-level polynomial evaluation without big-integer maths.
+- **BIP-39 encoding** — shares are serialised as 11-bit groups mapped to the standard 2048-word English wordlist used by Bitcoin wallets.
+- **Checksum** — each word-encoded share includes a SHA-256 checksum byte to detect transcription errors before reconstruction.
+
+## API Surface
+
+Four public functions and one interface:
+
+- `splitSecret(secret: Uint8Array, threshold: number, shares: number): ShamirShare[]` — split a secret
+- `reconstructSecret(shares: ShamirShare[], threshold: number): Uint8Array` — reconstruct from shares
+- `shareToWords(share: ShamirShare): string[]` — encode a share as BIP-39 words
+- `wordsToShare(words: string[]): ShamirShare` — decode words back to a share
+- `ShamirShare` — interface with `id` (1-255), `threshold` (2-255), `data` (Uint8Array)
+
+Three error classes: `ShamirError`, `ShamirValidationError`, `ShamirCryptoError`.
