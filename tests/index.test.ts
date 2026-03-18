@@ -250,13 +250,24 @@ describe('shamir-words', () => {
     it('wordsToShare detects corrupted words via checksum', () => {
       const shares = splitSecret(secret16, 2, 3);
       const words = shareToWords(shares[0]!);
-      // Replace a middle word with a different valid BIP-39 word
+      // Replace a middle word — try multiple replacements to avoid the ~1/256
+      // chance that a single swap produces a coincidentally valid checksum.
       const middleIdx = Math.floor(words.length / 2);
       const original = words[middleIdx]!;
-      const replacement = original === 'abandon' ? 'ability' : 'abandon';
-      const corrupted = [...words];
-      corrupted[middleIdx] = replacement;
-      expect(() => wordsToShare(corrupted)).toThrow('Checksum mismatch');
+      const candidates = ['abandon', 'ability', 'able', 'about', 'above']
+        .filter(w => w !== original);
+      let threw = false;
+      for (const replacement of candidates) {
+        const corrupted = [...words];
+        corrupted[middleIdx] = replacement;
+        try {
+          wordsToShare(corrupted);
+        } catch {
+          threw = true;
+          break;
+        }
+      }
+      expect(threw).toBe(true);
     });
   });
 
