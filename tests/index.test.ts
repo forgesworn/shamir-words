@@ -146,13 +146,13 @@ describe('shamir-words', () => {
     it('throws when a share has ID 0', () => {
       const shares = splitSecret(secret16, 2, 3);
       const zeroIdShare = { id: 0, data: shares[0].data };
-      expect(() => reconstructSecret([zeroIdShare, shares[1]], 2)).toThrow('Invalid share ID: 0');
+      expect(() => reconstructSecret([zeroIdShare, shares[1]], 2)).toThrow('must be an integer in [1, 255]');
     });
 
     it('throws when share ID exceeds 255', () => {
       const shares = splitSecret(secret16, 2, 3);
       const badShare = { id: 256, data: shares[0].data };
-      expect(() => reconstructSecret([badShare, shares[1]], 2)).toThrow('must be in [1, 255]');
+      expect(() => reconstructSecret([badShare, shares[1]], 2)).toThrow('must be an integer in [1, 255]');
     });
 
     it('throws when shares have inconsistent data lengths', () => {
@@ -221,6 +221,147 @@ describe('shamir-words', () => {
       const recoveredShares = wordShares.map(wordsToShare);
       const recovered = reconstructSecret(recoveredShares.slice(0, 3), 3);
       expect(recovered).toEqual(largeSecret);
+    });
+
+    it('roundtrips all previously-affected secret lengths (phantom byte regression)', () => {
+      // These lengths had padding >= 8 bits in the old format, causing phantom byte injection
+      const affectedLengths = [2, 6, 9, 13, 17, 20, 24, 28, 31, 35, 39, 42, 46, 50, 53, 57, 61, 64];
+      for (const len of affectedLengths) {
+        const secret = new Uint8Array(len);
+        for (let i = 0; i < len; i++) secret[i] = (i * 13 + 7) & 0xff;
+
+        const shares = splitSecret(secret, 2, 3);
+        const wordShares = shares.map(shareToWords);
+        const recoveredShares = wordShares.map(wordsToShare);
+        const recovered = reconstructSecret(recoveredShares, 2);
+        expect(recovered).toEqual(secret);
+      }
+    });
+
+    it('roundtrips 1-byte secret through full pipeline', () => {
+      const secret = new Uint8Array([0x42]);
+      const shares = splitSecret(secret, 2, 3);
+      const wordShares = shares.map(shareToWords);
+      const recoveredShares = wordShares.map(wordsToShare);
+      const recovered = reconstructSecret(recoveredShares, 2);
+      expect(recovered).toEqual(secret);
+    });
+
+    it('roundtrips boundary share IDs (1, 128, 255) through words', () => {
+      const shares = splitSecret(secret16, 2, 255);
+      for (const id of [1, 128, 255]) {
+        const share = shares[id - 1];
+        expect(share.id).toBe(id);
+        const words = shareToWords(share);
+        const recovered = wordsToShare(words);
+        expect(recovered.id).toBe(id);
+        expect(recovered.data).toEqual(share.data);
+      }
+    });
+
+    it('wordsToShare handles case-insensitive input', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const words = shareToWords(shares[0]);
+      const upperWords = words.map(w => w.toUpperCase());
+      const recovered = wordsToShare(upperWords);
+      expect(recovered.id).toBe(shares[0].id);
+      expect(recovered.data).toEqual(shares[0].data);
+    });
+  });
+
+  describe('security: splitSecret input validation', () => {
+    it('throws on empty secret', () => {
+      expect(() => splitSecret(new Uint8Array(0), 2, 3)).toThrow('must not be empty');
+    });
+
+    it('throws on non-Uint8Array secret', () => {
+      expect(() => splitSecret([0xDE, 0xAD] as unknown as Uint8Array, 2, 3)).toThrow('must be a Uint8Array');
+    });
+
+    it('throws on non-integer threshold', () => {
+      expect(() => splitSecret(secret16, 2.5, 3)).toThrow('safe integers');
+      expect(() => splitSecret(secret16, NaN, 3)).toThrow('safe integers');
+      expect(() => splitSecret(secret16, Infinity, 3)).toThrow('safe integers');
+    });
+
+    it('throws on non-integer shares', () => {
+      expect(() => splitSecret(secret16, 2, 3.5)).toThrow('safe integers');
+      expect(() => splitSecret(secret16, 2, NaN)).toThrow('safe integers');
+    });
+  });
+
+  describe('security: reconstructSecret input validation', () => {
+    it('throws on threshold < 2', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => reconstructSecret(shares, 1)).toThrow('integer >= 2');
+      expect(() => reconstructSecret(shares, 0)).toThrow('integer >= 2');
+    });
+
+    it('throws on non-integer threshold', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => reconstructSecret(shares, 2.5)).toThrow('integer >= 2');
+      expect(() => reconstructSecret(shares, NaN)).toThrow('integer >= 2');
+    });
+
+    it('throws on negative threshold', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => reconstructSecret(shares, -1)).toThrow('integer >= 2');
+    });
+
+    it('throws on negative share ID', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const bad = { id: -1, data: shares[0].data };
+      expect(() => reconstructSecret([bad, shares[1]], 2)).toThrow('must be an integer in [1, 255]');
+    });
+
+    it('throws on NaN share ID', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const bad = { id: NaN, data: shares[0].data };
+      expect(() => reconstructSecret([bad, shares[1]], 2)).toThrow('must be an integer in [1, 255]');
+    });
+
+    it('throws on duplicate share IDs', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const dup = [shares[0], { id: shares[0].id, data: shares[1].data }];
+      expect(() => reconstructSecret(dup, 2)).toThrow('Duplicate share IDs');
+    });
+
+    it('throws on share with missing data property', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      const bad = { id: 1 } as unknown as { id: number; data: Uint8Array };
+      expect(() => reconstructSecret([bad, shares[1]], 2)).toThrow('Uint8Array');
+    });
+
+    it('throws on null share in array', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => reconstructSecret([null as unknown as { id: number; data: Uint8Array }, shares[1]], 2)).toThrow('object');
+    });
+  });
+
+  describe('security: shareToWords input validation', () => {
+    it('throws on share ID 0', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => shareToWords({ id: 0, data: shares[0].data })).toThrow('integer in [1, 255]');
+    });
+
+    it('throws on share ID 256 (prevents silent Uint8Array truncation)', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => shareToWords({ id: 256, data: shares[0].data })).toThrow('integer in [1, 255]');
+    });
+
+    it('throws on negative share ID', () => {
+      const shares = splitSecret(secret16, 2, 3);
+      expect(() => shareToWords({ id: -1, data: shares[0].data })).toThrow('integer in [1, 255]');
+    });
+
+    it('throws on empty share data', () => {
+      expect(() => shareToWords({ id: 1, data: new Uint8Array(0) })).toThrow('non-empty');
+    });
+  });
+
+  describe('security: wordsToShare input validation', () => {
+    it('throws on unknown BIP-39 word with position info', () => {
+      expect(() => wordsToShare(['abandon', 'notaword', 'ability'])).toThrow('position 2');
     });
   });
 });

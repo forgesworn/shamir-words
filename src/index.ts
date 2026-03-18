@@ -5,6 +5,12 @@
 import { randomBytes } from '@noble/hashes/utils';
 import { wordlist as BIP39_WORDLIST } from '@scure/bip39/wordlists/english.js';
 
+/** O(1) word-to-index lookup, built once at module load */
+const BIP39_INDEX = new Map<string, number>();
+for (let i = 0; i < BIP39_WORDLIST.length; i++) {
+  BIP39_INDEX.set(BIP39_WORDLIST[i], i);
+}
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -128,6 +134,15 @@ export function splitSecret(
   threshold: number,
   shares: number,
 ): ShamirShare[] {
+  if (!(secret instanceof Uint8Array)) {
+    throw new ShamirValidationError('Secret must be a Uint8Array');
+  }
+  if (secret.length === 0) {
+    throw new ShamirValidationError('Secret must not be empty');
+  }
+  if (!Number.isSafeInteger(threshold) || !Number.isSafeInteger(shares)) {
+    throw new ShamirValidationError('Threshold and shares must be safe integers');
+  }
   if (threshold < 2) {
     throw new ShamirValidationError('Threshold must be at least 2');
   }
@@ -180,28 +195,34 @@ export function reconstructSecret(
   shares: ShamirShare[],
   threshold: number,
 ): Uint8Array {
-  if (shares.length < threshold) {
-    throw new ShamirValidationError(`Need at least ${threshold} shares, got ${shares.length}`);
+  if (!Number.isInteger(threshold) || threshold < 2) {
+    throw new ShamirValidationError('Threshold must be an integer >= 2');
+  }
+  if (!Array.isArray(shares) || shares.length < threshold) {
+    throw new ShamirValidationError(`Need at least ${threshold} shares, got ${Array.isArray(shares) ? shares.length : 0}`);
   }
 
   // Use only the first `threshold` shares
   const used = shares.slice(0, threshold);
 
-  // Validate no duplicate share IDs
-  const ids = new Set(used.map(s => s.id));
-  if (ids.size !== used.length) {
-    throw new ShamirValidationError('Duplicate share IDs detected — each share must have a unique ID');
+  // Validate share structure, IDs, and check for duplicates
+  const ids = new Set<number>();
+  for (const share of used) {
+    if (!share || typeof share !== 'object') {
+      throw new ShamirValidationError('Each share must be an object with id and data properties');
+    }
+    if (!Number.isInteger(share.id) || share.id < 1 || share.id > 255) {
+      throw new ShamirValidationError('Invalid share ID: must be an integer in [1, 255]');
+    }
+    if (!(share.data instanceof Uint8Array)) {
+      throw new ShamirValidationError('Share data must be a Uint8Array');
+    }
+    if (ids.has(share.id)) {
+      throw new ShamirValidationError('Duplicate share IDs detected — each share must have a unique ID');
+    }
+    ids.add(share.id);
   }
 
-  // Reject invalid share IDs: x must be in [1, 255] for GF(256)
-  for (const share of used) {
-    if (share.id === 0) {
-      throw new ShamirValidationError('Invalid share ID: 0 is not a valid x-coordinate');
-    }
-    if (share.id > 255) {
-      throw new ShamirValidationError('Invalid share ID: must be in [1, 255] for GF(256)');
-    }
-  }
   const secretLen = used[0].data.length;
   for (const share of used) {
     if (share.data.length !== secretLen) {
@@ -242,13 +263,28 @@ export function reconstructSecret(
 
 /**
  * Encode a share as BIP-39 words.
- * Prepends the share ID byte to the data, then converts to 11-bit groups.
+ * Format: [data_length, share_id, ...data] → 11-bit groups → BIP-39 words.
+ * The length prefix ensures exact roundtrip fidelity regardless of bit alignment.
  */
 export function shareToWords(share: ShamirShare): string[] {
-  // Prepend ID byte to data
-  const bytes = new Uint8Array(1 + share.data.length);
-  bytes[0] = share.id;
-  bytes.set(share.data, 1);
+  if (!share || typeof share !== 'object') {
+    throw new ShamirValidationError('Share must be an object with id and data properties');
+  }
+  if (!Number.isInteger(share.id) || share.id < 1 || share.id > 255) {
+    throw new ShamirValidationError('Share ID must be an integer in [1, 255]');
+  }
+  if (!(share.data instanceof Uint8Array) || share.data.length === 0) {
+    throw new ShamirValidationError('Share data must be a non-empty Uint8Array');
+  }
+  if (share.data.length > 255) {
+    throw new ShamirValidationError('Share data exceeds maximum length (255 bytes)');
+  }
+
+  // Prepend data-length byte and ID byte to data
+  const bytes = new Uint8Array(2 + share.data.length);
+  bytes[0] = share.data.length;
+  bytes[1] = share.id;
+  bytes.set(share.data, 2);
 
   // Stream bytes into 11-bit word indices using Number (safe up to 53 bits)
   // We extract words as soon as we have 11 bits, keeping accumulator small
@@ -279,7 +315,7 @@ export function shareToWords(share: ShamirShare): string[] {
 
 /**
  * Decode BIP-39 words back to a share.
- * Reverses the encoding from shareToWords.
+ * Expects format: [data_length, share_id, ...data] encoded as 11-bit groups.
  */
 export function wordsToShare(words: string[]): ShamirShare {
   if (words.length === 0) throw new ShamirValidationError('Cannot decode empty word list');
@@ -287,17 +323,15 @@ export function wordsToShare(words: string[]): ShamirShare {
     throw new ShamirValidationError('Word count exceeds maximum (256)');
   }
 
-  // Convert words to 11-bit indices
+  // Convert words to 11-bit indices using O(1) map lookup
   const indices: number[] = [];
-  for (const word of words) {
-    const idx = BIP39_WORDLIST.indexOf(word.toLowerCase());
-    if (idx === -1) throw new ShamirValidationError(`Unknown BIP-39 word: "${word}"`);
+  for (let i = 0; i < words.length; i++) {
+    const idx = BIP39_INDEX.get(words[i].toLowerCase());
+    if (idx === undefined) {
+      throw new ShamirValidationError(`Unknown BIP-39 word at position ${i + 1}`);
+    }
     indices.push(idx);
   }
-
-  // Total bits encoded, and how many full bytes that represents
-  const totalBits = indices.length * 11;
-  const totalBytes = Math.floor(totalBits / 8);
 
   // Stream 11-bit groups into bytes using safe unsigned arithmetic
   let bits = 0;
@@ -315,20 +349,29 @@ export function wordsToShare(words: string[]): ShamirShare {
     }
   }
 
-  // Only take the expected number of full bytes (discard padding bits)
-  const usable = byteList.slice(0, totalBytes);
-
-  // Need at least 2 bytes: 1 ID + 1 data byte
-  if (usable.length < 2) {
-    throw new ShamirValidationError('Word list too short — need at least 1 ID byte + 1 data byte');
+  // Need at least 3 bytes: 1 data-length + 1 ID + 1 data byte
+  if (byteList.length < 3) {
+    throw new ShamirValidationError('Word list too short — need at least data-length + ID + 1 data byte');
   }
 
-  // First byte is the share ID, rest is data
-  const id = usable[0];
+  // Read length prefix and validate
+  const dataLength = byteList[0];
+  if (dataLength === 0) {
+    throw new ShamirValidationError('Encoded data length is zero');
+  }
+  if (2 + dataLength > byteList.length) {
+    throw new ShamirValidationError('Word list too short for encoded data length');
+  }
+
+  const id = byteList[1];
   if (id === 0) {
     throw new ShamirValidationError('Invalid share ID: 0 is not a valid x-coordinate for GF(256)');
   }
-  const data = new Uint8Array(usable.slice(1));
+
+  const data = new Uint8Array(dataLength);
+  for (let i = 0; i < dataLength; i++) {
+    data[i] = byteList[2 + i];
+  }
 
   return { id, data };
 }
