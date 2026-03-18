@@ -2,8 +2,8 @@
 // Split secrets into threshold-of-n shares using polynomial interpolation
 // Shares can be encoded as BIP-39 words for human-readable exchange
 
-import { randomBytes } from '@noble/hashes/utils';
-import { sha256 } from '@noble/hashes/sha2';
+import { randomBytes } from '@noble/hashes/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { wordlist as BIP39_WORDLIST } from '@scure/bip39/wordlists/english.js';
 
 /** O(1) word-to-index lookup, built once at module load */

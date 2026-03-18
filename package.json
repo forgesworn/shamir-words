@@ -43,7 +43,7 @@
     "url": "https://github.com/forgesworn/shamir-words.git"
   },
   "dependencies": {
-    "@noble/hashes": "^1.7.1",
+    "@noble/hashes": "^2.0.1",
     "@scure/bip39": "^2.0.1"
   },
   "devDependencies": {
