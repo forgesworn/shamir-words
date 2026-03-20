@@ -1,5 +1,7 @@
 # shamir-words
 
+**Nostr:** [`npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`](https://njump.me/npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2)
+
 **Split secrets into human-readable word shares that can be spoken, written down, or stored separately.**
 
 Backing up cryptographic keys is hard. Raw byte shares are error-prone to transcribe and impossible to read over the phone. shamir-words combines [Shamir's Secret Sharing](https://en.wikipedia.org/wiki/Shamir%27s_secret_sharing) over GF(256) with [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki) word encoding, so each share becomes a list of familiar English words — just like a Bitcoin seed phrase.
