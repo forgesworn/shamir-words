@@ -1,0 +1,308 @@
+# @forgesworn/shamir-words — Full API Reference
+
+> Shamir's Secret Sharing over GF(256) with BIP-39 word encoding. Split any secret into threshold-of-n shares where any t shares reconstruct the original, but fewer than t reveal nothing. Shares are encoded as standard BIP-39 English words — human-readable, speakable, and checksum-verified.
+
+GitHub: https://github.com/forgesworn/shamir-words
+npm: https://www.npmjs.com/package/@forgesworn/shamir-words
+Version: 1.0.4
+
+## Install
+
+```bash
+npm install @forgesworn/shamir-words
+```
+
+ESM-only. Runtime dependencies: `@noble/hashes` (SHA-256 checksum), `@scure/bip39` (wordlist). Requires Node.js 18+.
+
+---
+
+## Quick Start
+
+```typescript
+import { splitSecret, reconstructSecret, shareToWords, wordsToShare } from '@forgesworn/shamir-words';
+
+// Split a secret into 3 shares, any 2 can reconstruct
+const secret = new TextEncoder().encode('my secret passphrase');
+const shares = splitSecret(secret, 2, 3);
+
+// Encode each share as BIP-39 words for human distribution
+const wordShares = shares.map(shareToWords);
+console.log(wordShares[0]); // ['abandon', 'ability', 'able', ...]
+
+// Later: collect 2 of 3 word shares and reconstruct
+const decodedShares = wordShares.slice(0, 2).map(wordsToShare);
+const recovered = reconstructSecret(decodedShares, 2);
+// recovered is identical to secret
+```
+
+---
+
+## Types
+
+### `ShamirShare`
+
+```typescript
+interface ShamirShare {
+  id: number        // Share index: 1–255 (the x-coordinate in GF(256))
+  threshold: number // Minimum shares needed to reconstruct: 2–255
+  data: Uint8Array  // Evaluated polynomial bytes (same length as original secret)
+}
+```
+
+`id` is 1-indexed — 0 is not a valid GF(256) evaluation point. The `threshold` is embedded in the wire format so `wordsToShare()` recovers it automatically.
+
+---
+
+## Functions
+
+### `splitSecret(secret, threshold, shares): ShamirShare[]`
+
+```typescript
+function splitSecret(
+  secret: Uint8Array,
+  threshold: number,
+  shares: number,
+): ShamirShare[]
+```
+
+Split a secret into Shamir shares using polynomial interpolation over GF(256).
+
+**Parameters:**
+- `secret` — the bytes to split. Must be a non-empty `Uint8Array`, max 255 bytes.
+- `threshold` — minimum shares required to reconstruct (2–255). Must be `>= 2`.
+- `shares` — total shares to create (threshold–255). Must be `>= threshold`.
+
+**Returns:** Array of `ShamirShare` objects with IDs 1 through `shares`.
+
+For each byte of the secret, a random polynomial of degree `threshold - 1` is generated with the secret byte as the constant term. The polynomial is evaluated at x = 1, 2, ..., `shares`. Polynomial coefficients are zeroed from memory after use.
+
+**Throws** `ShamirValidationError` for:
+- `secret` is not a `Uint8Array`
+- `secret` is empty or exceeds 255 bytes
+- `threshold` or `shares` are not safe integers
+- `threshold < 2`
+- `shares < threshold`
+- `shares > 255`
+
+```typescript
+const secret = crypto.getRandomValues(new Uint8Array(32)); // 32-byte key
+const shares = splitSecret(secret, 3, 5); // 3-of-5
+// shares[0].id === 1, shares[1].id === 2, ...
+```
+
+---
+
+### `reconstructSecret(shares, threshold): Uint8Array`
+
+```typescript
+function reconstructSecret(
+  shares: ShamirShare[],
+  threshold: number,
+): Uint8Array
+```
+
+Reconstruct a secret from shares using Lagrange interpolation over GF(256).
+
+**Parameters:**
+- `shares` — array of `ShamirShare` objects. Only the first `threshold` elements are used.
+- `threshold` — the threshold used during splitting. Must match `share.threshold` if set.
+
+**Returns:** The reconstructed secret bytes (identical to the original when given valid shares).
+
+**Throws** `ShamirValidationError` for:
+- `threshold < 2`
+- Fewer than `threshold` shares provided
+- Invalid share structure (missing `id` or `data`)
+- `share.id` outside `[1, 255]`
+- `share.data` is not a `Uint8Array`
+- Duplicate share IDs
+- `share.threshold` mismatch (when embedded in share)
+- Inconsistent share data lengths (shares from different secrets)
+
+```typescript
+// Collect any 3 of 5 shares
+const threeShares = [shares[0], shares[2], shares[4]];
+const recovered = reconstructSecret(threeShares, 3);
+```
+
+**Note:** Passing incorrect shares (e.g. wrong threshold, corrupted data) produces incorrect output rather than throwing — always verify the recovered secret against a known checksum.
+
+---
+
+### `shareToWords(share: ShamirShare): string[]`
+
+```typescript
+function shareToWords(share: ShamirShare): string[]
+```
+
+Encode a `ShamirShare` as BIP-39 words.
+
+**Wire format:** `[data_length, threshold, share_id, ...data, checksum]` → 11-bit groups → BIP-39 words.
+
+- `data_length` — single byte, length of `share.data` (1–255)
+- `threshold` — single byte (2–255)
+- `share_id` — single byte, the x-coordinate (1–255)
+- `data` — `share.data.length` bytes of share data
+- `checksum` — first byte of `SHA-256(data_length || threshold || share_id || data)`
+
+The byte stream is split into 11-bit groups; each group maps to a word in the standard 2048-word BIP-39 English wordlist. Padding bits in the last word are zero.
+
+**Returns:** Array of BIP-39 word strings. Length is `ceil(totalBytes * 8 / 11)`.
+
+**Throws** `ShamirValidationError` for invalid share structure.
+
+```typescript
+const words = shareToWords(shares[0]);
+// words.length depends on secret length:
+// 32-byte secret → shares have 32 data bytes → ~26 words each
+console.log(words.join(' ')); // "abandon ability able about above..."
+```
+
+---
+
+### `wordsToShare(words: string[]): ShamirShare`
+
+```typescript
+function wordsToShare(words: string[]): ShamirShare
+```
+
+Decode BIP-39 words back into a `ShamirShare`.
+
+Reverses `shareToWords()`: converts words to 11-bit indices, unpacks bytes, reads the header (`data_length`, `threshold`, `share_id`), verifies the SHA-256 checksum, and returns the reconstructed share.
+
+**Throws** `ShamirValidationError` for:
+- `words` is not an array
+- Empty word list or exceeds 256 words
+- Any word is not in the BIP-39 English wordlist
+- Non-zero padding bits (corrupted encoding)
+- Word list is too short for the encoded data length
+- Non-canonical word count (wrong number of words for the declared data length)
+- `threshold` outside `[2, 255]`
+- `share_id` is 0 (invalid x-coordinate)
+- Checksum mismatch (transcription error)
+
+```typescript
+const share = wordsToShare(['abandon', 'ability', 'able', ...]);
+// share.id, share.threshold, share.data all recovered
+```
+
+Word matching is case-insensitive and trims whitespace.
+
+---
+
+## Error Classes
+
+### `ShamirError`
+
+Base class for all library errors.
+
+```typescript
+class ShamirError extends Error {
+  name: 'ShamirError'
+}
+```
+
+### `ShamirValidationError extends ShamirError`
+
+Thrown for invalid inputs: wrong types, out-of-range values, structural violations, checksum mismatches.
+
+```typescript
+class ShamirValidationError extends ShamirError {
+  name: 'ShamirValidationError'
+}
+```
+
+### `ShamirCryptoError extends ShamirError`
+
+Thrown for internal cryptographic failures (e.g. division by zero in GF(256)).
+
+```typescript
+class ShamirCryptoError extends ShamirError {
+  name: 'ShamirCryptoError'
+}
+```
+
+---
+
+## GF(256) Arithmetic
+
+The library operates over GF(256) — Galois Field with 256 elements — using the same irreducible polynomial as AES (`0x11b`). This allows byte-level polynomial evaluation without big-integer arithmetic. Log/exp tables are computed once at module load using generator `0x03`.
+
+Key properties:
+- Addition in GF(256) is XOR
+- Multiplication uses log/exp table lookup (O(1))
+- Every non-zero element has a multiplicative inverse
+- Polynomial interpolation is exact (Lagrange, no floating-point error)
+
+---
+
+## Wire Format Details
+
+### Byte Layout
+
+```
+[data_length (1 byte)] [threshold (1 byte)] [share_id (1 byte)] [data (data_length bytes)] [checksum (1 byte)]
+```
+
+Total bytes: `3 + data_length + 1`
+
+### 11-bit Packing
+
+Bytes are packed into 11-bit groups left-to-right. Each 11-bit value indexes into the 2048-word BIP-39 wordlist. The final word may include up to 10 bits of zero padding.
+
+### Canonical Encoding
+
+`wordsToShare()` enforces canonical word count: `words.length === ceil(totalBytes * 8 / 11)`. Extra words or missing words are rejected.
+
+### Checksum
+
+SHA-256 is computed over the header + data (not including the checksum byte itself). The first byte of the digest is appended as the checksum. This detects single-word transcription errors with 99.6% probability.
+
+---
+
+## Security Notes
+
+- **Threshold security:** Fewer than `threshold` shares reveal zero information about the secret (information-theoretic security over GF(256)).
+- **Secret size limit:** 255 bytes — constrained by the single-byte length prefix in the wire format.
+- **Memory hygiene:** Polynomial coefficients are zeroed after use (`zeroBytes()`). Share `data` is not explicitly zeroed — the caller should zero sensitive material when done.
+- **Reconstruction output:** If given syntactically valid but semantically wrong shares (different secret, wrong order), `reconstructSecret()` produces garbage output without throwing. Verify the result against a known checksum or hash.
+- **Share IDs are 1-indexed:** ID 0 is not a valid GF(256) evaluation point and is rejected by validators.
+
+---
+
+## Sizing Reference
+
+For a 32-byte secret (256-bit key):
+
+| Threshold | Shares | Words per share |
+|-----------|--------|----------------|
+| 2 | 3 | 26 |
+| 3 | 5 | 26 |
+| 5 | 9 | 26 |
+
+For a 64-byte secret (512-bit key):
+
+| Threshold | Shares | Words per share |
+|-----------|--------|----------------|
+| 2 | 3 | 49 |
+| 3 | 5 | 49 |
+
+Words per share = `ceil((3 + secretLength + 1) * 8 / 11)`
+
+---
+
+## Use Cases
+
+- **Key backup** — split a Nostr `nsec`, Bitcoin BIP-32 seed, or Cashu wallet key into word shares distributed across trusted contacts
+- **Social recovery** — threshold-based wallet recovery without a single point of failure
+- **Dead man's switch** — distribute shares across geographies or time-locked services
+- **Custodial protocols** — require t-of-n signers to authorise sensitive operations
+- **nsec-tree integration** — split the master secret of a deterministic Nostr sub-identity tree
+
+---
+
+## Related Packages
+
+- `nsec-tree` — deterministic Nostr sub-identity derivation (use `shamir-words` to back up the master secret)
+- `@forgesworn/range-proof` — Pedersen commitment range proofs
+- `nostr-attestations` — NIP-VA kind 31000 verifiable attestations
