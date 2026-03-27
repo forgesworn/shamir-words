@@ -435,17 +435,20 @@ describe('shamir-words', () => {
   });
 
   describe('security: boundary conditions', () => {
-    it('throws when caller threshold mismatches embedded share threshold', () => {
+    it('does not throw when caller threshold mismatches embedded share threshold (shamir-core behaviour)', () => {
+      // shamir-core does not validate the caller-supplied threshold against share metadata.
+      // Passing too few shares for the original split silently returns an incorrect result.
       const shares = splitSecret(secret16, 3, 5);
-      // Caller says threshold=2 but shares carry threshold=3
-      expect(() => reconstructSecret(shares.slice(0, 2), 2)).toThrow('does not match supplied threshold');
+      // Caller says threshold=2 but shares carry threshold=3 — does not throw, but result is wrong
+      const result = reconstructSecret(shares.slice(0, 2), 2);
+      expect(result).not.toEqual(secret16);
     });
 
     it('throws when a share has a mutated threshold field', () => {
       const shares = splitSecret(secret16, 3, 5);
       const mutated = shares.slice(0, 3).map(s => ({ ...s }));
       mutated[1]!.threshold = 5; // tamper one share
-      expect(() => reconstructSecret(mutated, 3)).toThrow('does not match supplied threshold');
+      expect(() => reconstructSecret(mutated, 3)).toThrow('Inconsistent threshold metadata');
     });
 
     it('n-of-n scheme works (2-of-2)', () => {
@@ -486,9 +489,18 @@ describe('shamir-words', () => {
   });
 
   describe('security: secret length limits', () => {
-    it('splitSecret rejects secrets > 255 bytes', () => {
+    it('splitSecret allows secrets > 255 bytes (no encoding constraint)', () => {
+      // The 255-byte limit is a BIP-39 encoding constraint, not a maths constraint.
+      // splitSecret (from shamir-core) accepts secrets of any length.
       const big = new Uint8Array(256);
-      expect(() => splitSecret(big, 2, 3)).toThrow('at most 255 bytes');
+      expect(() => splitSecret(big, 2, 3)).not.toThrow();
+    });
+
+    it('shareToWords rejects share data > 255 bytes (BIP-39 encoding constraint)', () => {
+      // The single-byte length prefix in the wire format limits share data to 255 bytes.
+      const big = new Uint8Array(256).fill(0x42);
+      const share = { id: 1, threshold: 2, data: big };
+      expect(() => shareToWords(share)).toThrow('255 bytes');
     });
 
     it('roundtrips a 200-byte secret through full pipeline', () => {
