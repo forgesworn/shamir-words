@@ -121,6 +121,22 @@ The byte stream is split into 11-bit groups, each mapped to a BIP-39 word. The c
 - Share count: up to 255 (the GF(256) field size minus zero)
 - Threshold: 2-255 (single-share schemes are just copying, not secret sharing)
 
+## Part of the ForgeSworn Toolkit
+
+[ForgeSworn](https://forgesworn.dev) builds open-source cryptographic identity, payments, and coordination tools for Nostr.
+
+| Library | What it does |
+|---------|-------------|
+| [nsec-tree](https://github.com/forgesworn/nsec-tree) | Deterministic sub-identity derivation (uses shamir-words for recovery) |
+| [dominion](https://github.com/forgesworn/dominion) | Epoch-based encrypted access control (Shamir key distribution) |
+| [ring-sig](https://github.com/forgesworn/ring-sig) | SAG/LSAG ring signatures on secp256k1 |
+| [range-proof](https://github.com/forgesworn/range-proof) | Pedersen commitment range proofs |
+| [canary-kit](https://github.com/forgesworn/canary-kit) | Coercion-resistant spoken verification |
+| [spoken-token](https://github.com/forgesworn/spoken-token) | Human-speakable verification tokens |
+| [toll-booth](https://github.com/forgesworn/toll-booth) | L402 payment middleware |
+| [nostr-attestations](https://github.com/forgesworn/nostr-attestations) | NIP-VA verifiable attestations |
+| [geohash-kit](https://github.com/forgesworn/geohash-kit) | Geohash toolkit with polygon coverage |
+
 ## Licence
 
 [MIT](LICENCE)
