@@ -1,0 +1,38 @@
+# Cursor Rules — @forgesworn/shamir-words
+
+TypeScript library for Shamir's Secret Sharing over GF(256) with BIP-39 word encoding.
+
+## Commands
+
+```bash
+npm install
+npm run build      # tsc → dist/
+npm test           # vitest run
+npm run typecheck  # tsc --noEmit
+```
+
+## Conventions
+
+- British English in docs and comments — licence, serialise, colour
+- ESM-only (`"type": "module"`) — no CommonJS
+- Strict TypeScript — `noUncheckedIndexedAccess` enabled
+- TDD — write tests before implementation changes
+- Commit format: `type: description` (e.g. `fix:`, `feat:`, `refactor:`)
+- No `Co-Authored-By` lines in commits
+- Zero secrets in memory — use `zeroBytes` after polynomial coefficient use
+- Audited deps only — `@noble/hashes` and `@scure/bip39`; no homebrew crypto
+
+## Key Patterns
+
+- GF(256) arithmetic — field operations used for Shamir polynomial evaluation
+- BIP-39 word encoding — shares serialised as 11-bit groups mapped to wordlist
+- Wire format v2 — `[data_length, threshold, share_id, ...data, checksum]` → words
+- Share IDs are 1-indexed (1–255) — 0 is not a valid GF(256) evaluation point
+- Secret max 255 bytes — single-byte length prefix limits wire format
+- Error hierarchy — `ShamirError` → `ShamirValidationError` / `ShamirCryptoError`
+
+## Structure
+
+- `src/index.ts` — entire library (GF arithmetic, split/reconstruct, encoding)
+- `tests/index.test.ts` — comprehensive vitest suite
+- `dist/` — compiled output (committed; rebuilt by CI)
