@@ -1,0 +1,10 @@
+{
+  "projectTitle": "shamir-words",
+  "description": "Shamir's Secret Sharing over GF(256) with BIP-39 word output — human-readable, speakable secret shares.",
+  "excludeFolders": ["node_modules", "dist", "coverage", "src", "tests", ".github", ".changeset"],
+  "rules": [
+    "Shares are BIP-39 word sequences — they can be written down, spoken aloud, or stored as seed phrases.",
+    "Threshold (t) and total shares (n) are configurable. A 2-of-3 split is the most common pattern.",
+    "Works over GF(256) — each byte of the secret is split independently."
+  ]
+}
