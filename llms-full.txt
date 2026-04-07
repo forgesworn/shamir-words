@@ -186,7 +186,14 @@ const share = wordsToShare(['abandon', 'ability', 'able', ...]);
 // share.id, share.threshold, share.data all recovered
 ```
 
-Word matching is case-insensitive and trims whitespace.
+Word matching is case-insensitive and trims whitespace. The function performs full round-trip validation — a word list produced by `shareToWords()` will always decode successfully.
+
+**Edge cases:**
+- Misspelt words (e.g. `"abandn"`) throw immediately — the word must exist in the BIP-39 English wordlist
+- Swapped adjacent words produce a checksum mismatch in ~99.6% of cases
+- A single missing or extra word is always caught by canonical word count enforcement
+- Empty strings in the array are treated as invalid words and rejected
+- Leading/trailing whitespace on individual words is stripped before lookup
 
 ---
 
@@ -224,11 +231,112 @@ class ShamirCryptoError extends ShamirError {
 
 ---
 
+## Error Handling
+
+All validation failures throw `ShamirValidationError`. Catch errors at system boundaries when processing user-supplied input (word lists from transcription, share data from storage).
+
+### Handling invalid word shares
+
+```typescript
+import { wordsToShare, ShamirValidationError } from '@forgesworn/shamir-words';
+
+function loadShareFromUser(words: string[]): ShamirShare | null {
+  try {
+    return wordsToShare(words);
+  } catch (err) {
+    if (err instanceof ShamirValidationError) {
+      // Common causes:
+      // - Misspelt word (not in BIP-39 wordlist)
+      // - Swapped or missing words (checksum mismatch)
+      // - Truncated word list (too few words for declared data length)
+      // - Extra words appended (non-canonical word count)
+      console.error('Share decoding failed:', err.message);
+      return null;
+    }
+    throw err; // unexpected error, re-throw
+  }
+}
+```
+
+### Handling split parameter errors
+
+```typescript
+import { splitSecret, ShamirValidationError } from '@forgesworn/shamir-words';
+
+try {
+  const shares = splitSecret(secret, 1, 3); // threshold < 2
+} catch (err) {
+  if (err instanceof ShamirValidationError) {
+    // err.message describes the constraint violation:
+    // "Threshold must be at least 2"
+    // "Shares must be >= threshold"
+    // "Secret must be between 1 and 255 bytes"
+    console.error(err.message);
+  }
+}
+```
+
+### Full Secret Splitting and Reconstruction Workflow
+
+```typescript
+import {
+  splitSecret,
+  reconstructSecret,
+  shareToWords,
+  wordsToShare,
+  ShamirValidationError,
+} from '@forgesworn/shamir-words';
+
+// 1. Split a 32-byte key into 5 shares, any 3 to reconstruct
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const shares = splitSecret(secret, 3, 5);
+
+// 2. Encode as word lists for distribution
+const wordShares = shares.map(shareToWords);
+// Each word share is ~26 words for a 32-byte secret
+
+// 3. Later: collect any 3 word shares and decode them
+const collectedWords = [wordShares[0], wordShares[2], wordShares[4]];
+const decodedShares: ShamirShare[] = [];
+
+for (const words of collectedWords) {
+  try {
+    decodedShares.push(wordsToShare(words));
+  } catch (err) {
+    if (err instanceof ShamirValidationError) {
+      console.error('Corrupted share, ask holder to re-read:', err.message);
+      // Don't proceed — need exactly threshold valid shares
+    }
+  }
+}
+
+// 4. Reconstruct (threshold is embedded in shares)
+if (decodedShares.length >= decodedShares[0].threshold) {
+  const recovered = reconstructSecret(decodedShares, decodedShares[0].threshold);
+  // Verify: compare recovered against a known hash of the original
+}
+```
+
+---
+
 ## GF(256) Arithmetic
 
-The library operates over GF(256) — Galois Field with 256 elements — using the same irreducible polynomial as AES (`0x11b`). This allows byte-level polynomial evaluation without big-integer arithmetic. Log/exp tables are computed once at module load using generator `0x03`.
+The library operates over GF(256) — Galois Field with 256 elements — using the same irreducible polynomial as AES (`0x11b`). Log/exp tables are computed once at module load using generator `0x03`.
 
-Key properties:
+### Why GF(256)?
+
+GF(256) is the natural choice for byte-oriented secret sharing:
+
+- **One field element = one byte.** Each byte of the secret is an independent element in GF(2^8), so polynomial evaluation maps directly to byte operations with no big-integer arithmetic, no serialisation overhead, and no variable-length encoding.
+- **Exact arithmetic.** Addition is XOR, multiplication uses O(1) log/exp table lookup, and every non-zero element has a multiplicative inverse. Lagrange interpolation is exact — no floating-point error, no modular reduction of large integers.
+- **Information-theoretic security.** Each byte of the secret is protected by an independent degree-(t-1) polynomial over a 256-element field. Fewer than t shares reveal zero bits of information about any byte — this is unconditional, not dependent on computational hardness assumptions.
+- **Byte-level independence.** Because each byte is processed through its own random polynomial, there are no cross-byte correlations that an attacker could exploit. Compromising one byte position reveals nothing about adjacent bytes.
+- **Well-studied field.** The same field and irreducible polynomial are used in AES (Rijndael), making it one of the most thoroughly analysed finite fields in applied cryptography.
+
+The trade-off: GF(256) limits the field to 255 non-zero evaluation points, capping the maximum number of shares at 255. For secret sharing applications this is more than sufficient.
+
+### Key properties
+
 - Addition in GF(256) is XOR
 - Multiplication uses log/exp table lookup (O(1))
 - Every non-zero element has a multiplicative inverse
@@ -267,6 +375,31 @@ SHA-256 is computed over the header + data (not including the checksum byte itse
 - **Memory hygiene:** Polynomial coefficients are zeroed after use (`zeroBytes()`). Share `data` is not explicitly zeroed — the caller should zero sensitive material when done.
 - **Reconstruction output:** If given syntactically valid but semantically wrong shares (different secret, wrong order), `reconstructSecret()` produces garbage output without throwing. Verify the result against a known checksum or hash.
 - **Share IDs are 1-indexed:** ID 0 is not a valid GF(256) evaluation point and is rejected by validators.
+
+---
+
+## Preparing Secrets
+
+`splitSecret()` accepts any `Uint8Array` from 1 to 255 bytes. Common secret types and how to prepare them:
+
+```typescript
+// Text passphrase → Uint8Array
+const text = new TextEncoder().encode('correct horse battery staple');
+
+// Hex-encoded key → Uint8Array
+const hex = 'deadbeefcafebabe0123456789abcdef';
+const key = new Uint8Array(hex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+
+// Random 32-byte key (e.g. for AES-256 or Nostr nsec)
+const random = crypto.getRandomValues(new Uint8Array(32));
+
+// All of these work directly:
+const shares = splitSecret(text, 3, 5);    // text: 28 bytes
+const shares2 = splitSecret(key, 3, 5);    // hex key: 16 bytes
+const shares3 = splitSecret(random, 3, 5); // random: 32 bytes
+```
+
+Secrets longer than 255 bytes must be truncated, hashed, or split into chunks before sharing. For most cryptographic keys (32-64 bytes), this limit is not a constraint.
 
 ---
 
