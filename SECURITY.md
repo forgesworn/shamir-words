@@ -1,48 +1,39 @@
 # Security Policy
 
-## Supported Versions
+## Audit Status
 
-| Version | Supported |
-|---------|-----------|
-| 1.x     | Yes       |
+This library has not undergone a formal security audit.
 
-## Reporting a Vulnerability
+## Algorithm
 
-If you discover a security vulnerability in shamir-words, please report it responsibly.
+This library implements Shamir's Secret Sharing over the Galois field GF(256), with BIP-39 word encoding for human-readable share representation.
 
-**Do not open a public GitHub issue for security vulnerabilities.**
+A secret is split into _n_ shares such that any _t_ (threshold) shares can reconstruct the original secret via Lagrange interpolation, while fewer than _t_ shares reveal zero information about the secret. Each share is encoded as a list of BIP-39 English words for safe transcription and spoken communication.
 
-Instead, email **thecryptodonkey@proton.me** with:
+## Academic Reference
 
-1. A description of the vulnerability
-2. Steps to reproduce
-3. Impact assessment (what an attacker could achieve)
-4. Suggested fix (if you have one)
+- **Shamir, Adi (1979)** -- "How to Share a Secret". Communications of the ACM, 22(11), pp. 612-613. The foundational paper proving that polynomial-based secret sharing over a finite field achieves information-theoretic security.
 
-You should receive an acknowledgement within 48 hours. We aim to release a fix within 7 days of confirmation.
+## Security Properties
 
-## Scope
-
-shamir-words is a cryptographic primitive library. The following are in scope:
-
-- **Shamir reconstruction correctness** -- any input that causes incorrect secret recovery
-- **GF(256) arithmetic errors** -- incorrect field operations
-- **Checksum bypass** -- inputs that pass checksum validation despite corruption
-- **Information leakage** -- shares revealing information about the secret below the threshold
-- **Wire format parsing** -- malformed input causing crashes, hangs, or unexpected behaviour
+- **Information-theoretic security** -- fewer than _threshold_ shares reveal zero information about the secret. This is a proven mathematical property of Shamir's scheme over a finite field, not dependent on computational hardness assumptions.
+- **Integrity checking** -- a SHA-256 checksum byte is embedded in each word-encoded share, detecting transcription errors before reconstruction.
+- **Memory hygiene** -- polynomial coefficients are zeroed after use to reduce the window of secret exposure in memory.
 
 ## Dependencies
 
-This library depends on two audited cryptographic libraries:
+- [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) -- SHA-256 checksum computation (audited by Cure53)
+- [`@scure/bip39`](https://github.com/paulmillr/scure-bip39) -- BIP-39 English wordlist (audited by Cure53)
+- [`@forgesworn/shamir-core`](https://github.com/forgesworn/shamir-core) -- GF(256) arithmetic and Lagrange interpolation
 
-- `@noble/hashes` -- SHA-256 (checksum computation)
-- `@scure/bip39` -- BIP-39 English wordlist
+## Known Limitations
 
-Vulnerabilities in these dependencies should be reported to their respective maintainers.
+- **Maximum 255 shares** -- constrained by the GF(256) field size (evaluation points 1-255).
+- **Secret length 1-255 bytes** -- limited by the single-byte length prefix in the wire format.
+- **Minimum threshold of 2** -- a threshold of 1 is not secret sharing, it is copying.
 
-## Design Properties
+## Reporting Vulnerabilities
 
-- **Information-theoretic security**: fewer than `threshold` shares reveal zero information about the secret (proven property of Shamir's scheme over GF(256))
-- **Integrity detection**: SHA-256 checksum byte detects transcription errors with 99.6% probability
-- **Memory hygiene**: polynomial coefficients are zeroed after use; callers should zero share data when done
-- **No timing-sensitive operations**: GF(256) arithmetic uses table lookups with no secret-dependent branching
+Please report security vulnerabilities via [GitHub Security Advisories](https://github.com/forgesworn/shamir-words/security/advisories/new).
+
+Do not open public issues for security-sensitive reports.
