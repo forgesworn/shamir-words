@@ -1,6 +1,6 @@
 {
   "name": "@forgesworn/shamir-words",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Shamir's Secret Sharing over GF(256) with BIP-39 word encoding for human-readable share exchange",
   "type": "module",
   "main": "./dist/index.js",
@@ -34,7 +34,8 @@
     "key-splitting"
   ],
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "sideEffects": false,
   "license": "MIT",
@@ -52,10 +53,7 @@
     "@scure/bip39": "^2.0.1"
   },
   "devDependencies": {
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
     "@types/node": "^25.5.0",
-    "semantic-release": "^25.0.3",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
