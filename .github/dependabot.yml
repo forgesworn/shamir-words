@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # npm dependencies — @forgesworn/shamir-words has three runtime
+  # dependencies (@forgesworn/shamir-core, @noble/hashes, @scure/bip39)
+  # so production bumps matter. Keep production and development groups
+  # separate so a runtime-dep bump doesn't hide inside a batch of
+  # devDep noise.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      production-dependencies:
+        dependency-type: production
+      dev-dependencies:
+        dependency-type: development
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # GitHub Actions references in .github/workflows. Monthly is
+  # frequent enough; a weekly cadence would produce mostly trivial
+  # SHA bumps. shamir-words already SHA-pins actions so this mostly
+  # picks up major version changes to the release-action v0 pin.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore
+      include: scope
