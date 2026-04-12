@@ -92,7 +92,7 @@ describe('shamir-words', () => {
 
   describe('validation', () => {
     it('throws when threshold < 2', () => {
-      expect(() => splitSecret(secret16, 1, 3)).toThrow('at least 2');
+      expect(() => splitSecret(secret16, 1, 3)).toThrow('Threshold must be in [2, 255]');
     });
 
     it('throws when shares < threshold', () => {
@@ -435,20 +435,17 @@ describe('shamir-words', () => {
   });
 
   describe('security: boundary conditions', () => {
-    it('does not throw when caller threshold mismatches embedded share threshold (shamir-core behaviour)', () => {
-      // shamir-core does not validate the caller-supplied threshold against share metadata.
-      // Passing too few shares for the original split silently returns an incorrect result.
+    it('throws when caller threshold mismatches embedded share threshold', () => {
+      // shamir-core 1.0.3+ validates the caller-supplied threshold against share metadata.
       const shares = splitSecret(secret16, 3, 5);
-      // Caller says threshold=2 but shares carry threshold=3 — does not throw, but result is wrong
-      const result = reconstructSecret(shares.slice(0, 2), 2);
-      expect(result).not.toEqual(secret16);
+      expect(() => reconstructSecret(shares.slice(0, 2), 2)).toThrow('does not match supplied threshold');
     });
 
     it('throws when a share has a mutated threshold field', () => {
       const shares = splitSecret(secret16, 3, 5);
       const mutated = shares.slice(0, 3).map(s => ({ ...s }));
       mutated[1]!.threshold = 5; // tamper one share
-      expect(() => reconstructSecret(mutated, 3)).toThrow('Inconsistent threshold metadata');
+      expect(() => reconstructSecret(mutated, 3)).toThrow('does not match supplied threshold');
     });
 
     it('n-of-n scheme works (2-of-2)', () => {
