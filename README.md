@@ -4,6 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/@forgesworn/shamir-words)](https://www.npmjs.com/package/@forgesworn/shamir-words)
 [![CI](https://github.com/forgesworn/shamir-words/actions/workflows/ci.yml/badge.svg)](https://github.com/forgesworn/shamir-words/actions/workflows/ci.yml)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/TheCryptoDonkey?logo=githubsponsors&color=ea4aaa&label=Sponsor)](https://github.com/sponsors/TheCryptoDonkey)
 
 **Split secrets into human-readable word shares that can be spoken, written down, or stored separately.**
 
