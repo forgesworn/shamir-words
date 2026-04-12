@@ -10,4 +10,4 @@ permissions:
 
 jobs:
   release:
-    uses: forgesworn/release-action/.github/workflows/release.yml@v0
+    uses: forgesworn/anvil/.github/workflows/release.yml@v0

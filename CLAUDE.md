@@ -40,7 +40,7 @@ Word-encoded shares pack as: `[data_length, threshold, share_id, ...data, checks
 
 ## Release & Versioning
 
-**Via [forgesworn/release-action](https://github.com/forgesworn/release-action).** Version bumps are manual; npm publishing is automatic once a GitHub Release is created for the version tag.
+**Via [forgesworn/anvil](https://github.com/forgesworn/anvil).** Version bumps are manual; npm publishing is automatic once a GitHub Release is created for the version tag.
 
 Release flow:
 
