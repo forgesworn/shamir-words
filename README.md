@@ -1,5 +1,10 @@
 # shamir-words
 
+> **Alpha:** the opt-in v3 typed envelope is shipping as `1.2.0-alpha.1` for
+> integration testing. Automated and cross-repository tests pass, but the full
+> paper-share and Heartwood hardware restore ceremony has not run. Existing v2
+> shares remain unchanged; use v3 with test secrets and keep another backup.
+
 **Nostr:** [`npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`](https://njump.me/npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2)
 
 [![npm](https://img.shields.io/npm/v/@forgesworn/shamir-words)](https://www.npmjs.com/package/@forgesworn/shamir-words)
@@ -15,6 +20,7 @@ Backing up cryptographic keys is hard. Raw byte shares are error-prone to transc
 - **Human-readable shares** — each share is a BIP-39 word list, not a hex blob
 - **Threshold recovery** — any _t_ of _n_ shares reconstruct the secret; fewer reveal nothing
 - **Integrity checking** — SHA-256 checksum detects transcription errors before reconstruction
+- **Typed v3 envelopes** — opt-in magic/version and payload semantics prevent recovered bytes being mistaken for the wrong kind of key
 - **Minimal dependencies** — only `@noble/hashes` and `@scure/bip39` (audited cryptographic libraries)
 - **TypeScript-first** — full type safety with exported interfaces and error classes
 
@@ -90,6 +96,40 @@ Decode BIP-39 words back to a share. Verifies the checksum and rejects corrupted
 
 Returns `ShamirShare`.
 
+### `splitSecretToWordsV3(secret, threshold, shares, { payloadKind })`
+
+Safely split and encode new ForgeSworn recovery material. Every v3 share binds
+the payload meaning and a 64-bit error-detection fingerprint of the original
+secret. Supported meanings are `opaque`, `bip39-entropy`, `raw-nsec-v1`,
+`nsec-tree-root-v1`, `nsec-tree-mnemonic-v1`, `nsec-tree-nsec-v1`, and
+`forgesworn-recovery-words-v1`.
+
+```typescript
+const wordShares = splitSecretToWordsV3(secret, 2, 3, {
+  payloadKind: 'forgesworn-recovery-words-v1',
+});
+
+const recovered = reconstructWordsV3(wordShares.slice(0, 2));
+// recovered.payloadKind is preserved and mixed share sets are rejected.
+recovered.secret.fill(0);
+```
+
+The lower-level `shareToWordsV3(share, { payloadKind, secret })` is available
+when shares were split separately. Supplying the original secret binds the
+same fingerprint into every share. `shareToWords()` remains the frozen
+historical v2 encoder.
+
+### `wordsToShareV3(words)`
+
+Strictly decode v3, returning
+`{ formatVersion: 3, payloadKind, secretFingerprint, share }`. It never falls
+back to v2, so a damaged typed header cannot silently change meaning.
+`reconstructWordsV3()` additionally rejects inconsistent metadata and checks
+the fingerprint after reconstruction, catching shares mixed across split
+operations. `decodeWordsEnvelope(words)` is the explicit migration decoder for
+a collection that may contain old v2 paper shares; it reports v2 as `opaque`
+with no fingerprint.
+
 ### Types
 
 ```typescript
@@ -108,13 +148,25 @@ interface ShamirShare {
 
 ## Wire Format
 
-Each word-encoded share packs bytes as:
+Historical v2 (`shareToWords`) remains:
 
 ```
 [data_length, threshold, share_id, ...data, checksum]
 ```
 
 The byte stream is split into 11-bit groups, each mapped to a BIP-39 word. The checksum is the first byte of SHA-256 over the preceding bytes.
+
+Opt-in v3 (`shareToWordsV3`) packs:
+
+```
+[0x00, 0x46, 0x53, 3, payload_kind, data_length, threshold, share_id,
+ secret_fingerprint_8, ...data, checksum_4]
+```
+
+The leading zero can never be a valid v2 data length. The checksum is the first
+four bytes of SHA-256 over the preceding bytes. The secret fingerprint is the
+first eight bytes of a domain-separated SHA-256 over the payload kind and
+original secret. Both are integrity and error detection, not authentication.
 
 ## Limitations
 

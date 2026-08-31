@@ -36,9 +36,11 @@ examples/            # usage examples
 - **Zero secrets in memory** — polynomial coefficients must be zeroed via `zeroBytes` after use
 - **Audited dependencies only** — `@noble/hashes` v2 and `@scure/bip39` v2; never introduce homebrew crypto
 
-## Wire Format (v2)
+## Wire Formats
 
-Word-encoded shares pack as: `[data_length, threshold, share_id, ...data, checksum]` packed into 11-bit groups and mapped to BIP-39 words. The checksum is the first byte of SHA-256 over the preceding bytes. `wordsToShare` recovers threshold automatically from the encoding.
+- Historical v2 (`shareToWords` / `wordsToShare`) is frozen as `[data_length, threshold, share_id, ...data, checksum_1]`.
+- Opt-in v3 is `[0x00, "FS", 3, payload_kind, data_length, threshold, share_id, secret_fingerprint_8, ...data, checksum_4]`. The zero sentinel cannot collide with v2's non-zero length. Prefer `splitSecretToWordsV3` / `reconstructWordsV3`, which bind and re-check the original secret so mixed split sets fail closed. `decodeWordsEnvelope` is the explicit migration decoder.
+- Never silently change `shareToWords`; paper v2 shares are load-bearing. New ForgeSworn recovery flows should use strict v3, retain the decoded payload kind, and verify the v3 secret fingerprint through reconstruction.
 
 Key constraints:
 - Share IDs are 1-indexed (1–255) — 0 is not a valid GF(256) evaluation point
@@ -55,4 +57,8 @@ Key constraints:
 
 ## Release Notes
 
-Releases are automated via semantic-release triggered on push to `main`. Do not manually edit `CHANGELOG.md` or bump versions in `package.json` — semantic-release handles both. Work on a feature branch and merge to `main` only when complete.
+Version bumps and changelog entries are manual. After merging to `main`, create
+a GitHub Release for the matching tag; `forgesworn/anvil` runs the release gates
+and publishes through npm OIDC. Prereleases must set `publishConfig.tag` so they
+cannot move npm's `latest` tag. Work on a feature branch and merge to `main`
+only when complete.
