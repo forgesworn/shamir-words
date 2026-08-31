@@ -27,9 +27,11 @@ npm run typecheck    # tsc --noEmit
 - **Zero secrets in memory** — polynomial coefficients are zeroed after use (`zeroBytes`)
 - **Audited deps only** — `@noble/hashes` and `@scure/bip39` (no homebrew crypto)
 
-## Wire format (v2)
+## Wire formats
 
-Word-encoded shares pack as: `[data_length, threshold, share_id, ...data, checksum]` → 11-bit groups → BIP-39 words. The checksum is the first byte of SHA-256 over the preceding bytes.
+- Historical v2 is frozen: `[data_length, threshold, share_id, ...data, checksum_1]`.
+- Opt-in v3 adds a collision-free zero sentinel, `FS` magic, version, payload kind, an eight-byte original-secret fingerprint, and four-byte SHA-256 checksum: `[0x00, "FS", 3, payload_kind, data_length, threshold, share_id, secret_fingerprint_8, ...data, checksum_4]`.
+- `shareToWords` remains v2. New recovery-aware code prefers `splitSecretToWordsV3` and `reconstructWordsV3`; strict `wordsToShareV3` is the low-level decoder and `decodeWordsEnvelope` exists only for explicit migration.
 
 ## Gotchas
 

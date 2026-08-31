@@ -1,3 +1,23 @@
+## [1.2.0-alpha.1](https://github.com/forgesworn/shamir-words/compare/v1.1.0...v1.2.0-alpha.1) (2026-08-31)
+
+### Added
+
+* add an opt-in v3 word envelope with a collision-free sentinel, `FS` magic,
+  explicit format version, recovery payload kind, eight-byte original-secret
+  fingerprint, and four-byte checksum. Safe split/reconstruct helpers reject
+  shares mixed across independently randomised split operations.
+  `shareToWords` and `wordsToShare` retain their historical v2 wire behaviour;
+  `splitSecretToWordsV3`, `reconstructWordsV3`, `shareToWordsV3`,
+  `wordsToShareV3`, and `decodeWordsEnvelope` provide the new and migration
+  paths without invalidating existing paper shares.
+
+### Alpha status
+
+* the v3 format passes automated unit and cross-repository recovery tests, but
+  the complete ForgeSworn paper-share and Heartwood restore ceremony has not
+  yet run on hardware. Keep historical v2 shares unchanged, use v3 with test
+  secrets only, and retain an independent backup.
+
 # [1.1.0](https://github.com/forgesworn/shamir-words/compare/v1.0.4...v1.1.0) (2026-04-11)
 
 

@@ -4,6 +4,11 @@ import {
   reconstructSecret,
   shareToWords,
   wordsToShare,
+  shareToWordsV3,
+  wordsToShareV3,
+  decodeWordsEnvelope,
+  splitSecretToWordsV3,
+  reconstructWordsV3,
   ShamirShare,
 } from '../src/index.js';
 import { wordlist as BIP39_WORDLIST } from '@scure/bip39/wordlists/english.js';
@@ -268,6 +273,83 @@ describe('shamir-words', () => {
         }
       }
       expect(threw).toBe(true);
+    });
+  });
+
+  describe('versioned word envelope v3', () => {
+    it('carries a magic, version, and payload meaning without changing the v2 encoder', () => {
+      const share = splitSecret(secret32, 2, 3)[0]!;
+      const legacyBefore = shareToWords(share);
+      const words = shareToWordsV3(share, { payloadKind: 'raw-nsec-v1', secret: secret32 });
+
+      expect(words).not.toEqual(legacyBefore);
+      expect(shareToWords(share)).toEqual(legacyBefore);
+      const decoded = wordsToShareV3(words);
+      expect(decoded.formatVersion).toBe(3);
+      expect(decoded.payloadKind).toBe('raw-nsec-v1');
+      expect(decoded.secretFingerprint).toMatch(/^[0-9a-f]{16}$/);
+      expect(decoded.share).toEqual(share);
+    });
+
+    it('labels ForgeSworn recovery-word payloads explicitly', () => {
+      const share = splitSecret(secret16, 2, 3)[1]!;
+      const words = shareToWordsV3(share, {
+        payloadKind: 'forgesworn-recovery-words-v1',
+        secret: secret16,
+      });
+      expect(wordsToShareV3(words).payloadKind).toBe('forgesworn-recovery-words-v1');
+    });
+
+    it('offers an explicit migration decoder for both v2 and v3', () => {
+      const share = splitSecret(secret16, 2, 3)[0]!;
+      const legacy = decodeWordsEnvelope(shareToWords(share));
+      expect(legacy.formatVersion).toBe(2);
+      expect(legacy.payloadKind).toBe('opaque');
+      expect(legacy.secretFingerprint).toBeNull();
+      expect(legacy.share).toEqual(share);
+
+      const v3 = decodeWordsEnvelope(shareToWordsV3(share, {
+        payloadKind: 'nsec-tree-root-v1',
+        secret: secret16,
+      }));
+      expect(v3.formatVersion).toBe(3);
+      expect(v3.payloadKind).toBe('nsec-tree-root-v1');
+    });
+
+    it('rejects corruption and refuses to reinterpret it as a legacy share', () => {
+      const share = splitSecret(secret32, 2, 3)[0]!;
+      const words = shareToWordsV3(share, { payloadKind: 'raw-nsec-v1', secret: secret32 });
+      const corrupted = [...words];
+      const at = Math.floor(words.length / 2);
+      corrupted[at] = corrupted[at] === 'abandon' ? 'ability' : 'abandon';
+      expect(() => wordsToShareV3(corrupted)).toThrow();
+      expect(() => decodeWordsEnvelope(corrupted)).toThrow();
+    });
+
+    it('safely splits and reconstructs a typed secret', () => {
+      const wordShares = splitSecretToWordsV3(secret32, 2, 3, {
+        payloadKind: 'raw-nsec-v1',
+      });
+      const recovered = reconstructWordsV3(wordShares.slice(0, 2));
+
+      expect(recovered.payloadKind).toBe('raw-nsec-v1');
+      expect(recovered.secretFingerprint).toMatch(/^[0-9a-f]{16}$/);
+      expect(recovered.secret).toEqual(secret32);
+      recovered.secret.fill(0);
+    });
+
+    it('rejects individually valid shares from different split operations', () => {
+      const first = splitSecretToWordsV3(secret32, 2, 3, { payloadKind: 'raw-nsec-v1' });
+      const second = splitSecretToWordsV3(secret32, 2, 3, { payloadKind: 'raw-nsec-v1' });
+
+      expect(() => reconstructWordsV3([first[0]!, second[1]!])).toThrow(/fingerprint/i);
+    });
+
+    it('rejects shares with different payload meanings before reconstruction', () => {
+      const raw = splitSecretToWordsV3(secret32, 2, 3, { payloadKind: 'raw-nsec-v1' });
+      const tree = splitSecretToWordsV3(secret32, 2, 3, { payloadKind: 'nsec-tree-root-v1' });
+
+      expect(() => reconstructWordsV3([raw[0]!, tree[1]!])).toThrow(/payload kind/i);
     });
   });
 
