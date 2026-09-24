@@ -4,7 +4,6 @@
 
 GitHub: https://github.com/forgesworn/shamir-words
 npm: https://www.npmjs.com/package/@forgesworn/shamir-words
-Version: 1.0.4
 
 ## Install
 
@@ -50,6 +49,51 @@ interface ShamirShare {
 ```
 
 `id` is 1-indexed — 0 is not a valid GF(256) evaluation point. The `threshold` is embedded in the wire format so `wordsToShare()` recovers it automatically.
+
+### `WordSharePayloadKind` (v3, opt-in)
+
+```typescript
+type WordSharePayloadKind =
+  | 'opaque'
+  | 'bip39-entropy'
+  | 'raw-nsec-v1'
+  | 'nsec-tree-root-v1'
+  | 'nsec-tree-mnemonic-v1'
+  | 'nsec-tree-nsec-v1'
+  | 'forgesworn-recovery-words-v1'
+```
+
+Labels the meaning of the secret a v3 share set reconstructs. The share bytes themselves stay opaque; this metadata stops a recovered byte string from being fed into the wrong derivation.
+
+### `ShareToWordsV3Options` (v3, opt-in)
+
+```typescript
+interface ShareToWordsV3Options {
+  payloadKind: WordSharePayloadKind
+  secret: Uint8Array // original secret; hashed only, never placed in a share
+}
+```
+
+### `DecodedWordsEnvelope` (v3, opt-in)
+
+```typescript
+interface DecodedWordsEnvelope {
+  formatVersion: 2 | 3        // 2 = historical unversioned layout, 3 = typed envelope
+  payloadKind: WordSharePayloadKind
+  secretFingerprint: string | null // null for decoded v2 shares
+  share: ShamirShare
+}
+```
+
+### `ReconstructedWordsV3` (v3, opt-in)
+
+```typescript
+interface ReconstructedWordsV3 {
+  payloadKind: WordSharePayloadKind
+  secretFingerprint: string
+  secret: Uint8Array // caller-owned; the caller must zero-fill it when done
+}
+```
 
 ---
 
@@ -197,6 +241,94 @@ Word matching is case-insensitive and trims whitespace. The function performs fu
 
 ---
 
+### `shareToWordsV3(share, options): string[]` (opt-in, alpha)
+
+```typescript
+function shareToWordsV3(
+  share: ShamirShare,
+  options: ShareToWordsV3Options,
+): string[]
+```
+
+Encode a share in the opt-in v3 typed envelope: `[0x00, 'F', 'S', 3, payload_kind, data_length, threshold, share_id, secret_fingerprint_8, ...data, checksum_4]`. `shareToWords()` remains the frozen v2 encoder; existing paper shares and callers are unaffected.
+
+**Parameters:**
+- `share`: the `ShamirShare` to encode.
+- `options.payloadKind`: a recognised `WordSharePayloadKind`.
+- `options.secret`: the original secret, same length as `share.data`. Used only to derive the fingerprint; it is not written into the share.
+
+**Throws** `ShamirValidationError` for an invalid share, an unrecognised `payloadKind`, or a `secret` that is not a `Uint8Array` matching `share.data.length`.
+
+```typescript
+const words = shareToWordsV3(shares[0], {
+  payloadKind: 'raw-nsec-v1',
+  secret,
+});
+```
+
+---
+
+### `wordsToShareV3(words): DecodedWordsEnvelope` (opt-in, alpha)
+
+```typescript
+function wordsToShareV3(words: string[]): DecodedWordsEnvelope
+```
+
+Strictly decode a v3 typed share. It never falls back to the v2 format, which makes it the safest entry point when a workflow expects v3.
+
+**Throws** `ShamirValidationError` for a word list too short for a v3 envelope, a missing or wrong magic/sentinel, an unsupported format version or payload kind, a non-canonical word count, or a checksum mismatch.
+
+---
+
+### `decodeWordsEnvelope(words): DecodedWordsEnvelope` (opt-in, alpha)
+
+```typescript
+function decodeWordsEnvelope(words: string[]): DecodedWordsEnvelope
+```
+
+Migration decoder that reports whether a word list is historical v2 or typed v3. Existing `wordsToShare()` semantics are unchanged; new ForgeSworn recovery code should prefer strict `wordsToShareV3()` when v3 is already known. A v2 share decodes with `formatVersion: 2`, `payloadKind: 'opaque'`, and `secretFingerprint: null`.
+
+---
+
+### `splitSecretToWordsV3(secret, threshold, shares, options): string[][]` (opt-in, alpha)
+
+```typescript
+function splitSecretToWordsV3(
+  secret: Uint8Array,
+  threshold: number,
+  shares: number,
+  options: Pick<ShareToWordsV3Options, 'payloadKind'>,
+): string[][]
+```
+
+Safest v3 entry point: splits a secret and encodes every resulting share with the same payload kind and secret fingerprint in one call. Intermediate share bytes are zeroed before return.
+
+```typescript
+const wordShares = splitSecretToWordsV3(secret, 2, 3, {
+  payloadKind: 'forgesworn-recovery-words-v1',
+});
+```
+
+---
+
+### `reconstructWordsV3(wordShares): ReconstructedWordsV3` (opt-in, alpha)
+
+```typescript
+function reconstructWordsV3(wordShares: string[][]): ReconstructedWordsV3
+```
+
+Strictly decodes and reconstructs typed v3 shares. Every supplied share must agree on payload kind, threshold, and data length; after reconstruction the fingerprint is checked again, which catches shares mixed across independently randomised split operations.
+
+**Throws** `ShamirValidationError` if fewer than one word-share array is supplied, if any share fails `wordsToShareV3()`, if payload kinds, thresholds, or data lengths disagree across shares, or if the reconstructed secret's fingerprint does not match the one embedded in the shares.
+
+```typescript
+const recovered = reconstructWordsV3(wordShares.slice(0, 2));
+// recovered.payloadKind and recovered.secretFingerprint are preserved
+recovered.secret.fill(0); // caller zeroes the secret when done
+```
+
+---
+
 ## Error Classes
 
 ### `ShamirError`
@@ -317,6 +449,49 @@ if (decodedShares.length >= decodedShares[0].threshold) {
 }
 ```
 
+### Typed v3 Split, Reconstruct, and Migration Workflow (opt-in, alpha)
+
+```typescript
+import {
+  splitSecretToWordsV3,
+  reconstructWordsV3,
+  decodeWordsEnvelope,
+  ShamirValidationError,
+} from '@forgesworn/shamir-words';
+
+// 1. Split and encode with a payload kind bound into every share
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const wordShares = splitSecretToWordsV3(secret, 2, 3, {
+  payloadKind: 'raw-nsec-v1',
+});
+
+// 2. Later: reconstruct from any 2 of the 3 word shares
+try {
+  const recovered = reconstructWordsV3(wordShares.slice(0, 2));
+  // recovered.payloadKind === 'raw-nsec-v1'
+  // ... use recovered.secret ...
+  recovered.secret.fill(0); // caller must zero the secret when done
+} catch (err) {
+  if (err instanceof ShamirValidationError) {
+    // Common causes:
+    // - shares mixed across different split operations (fingerprint mismatch)
+    // - shares from different payload kinds or thresholds
+    // - checksum mismatch (corrupted or mistyped words)
+    console.error('v3 reconstruction failed:', err.message);
+  }
+}
+
+// 3. Migration: a collection may contain a mix of old v2 paper shares and new v3 shares
+for (const words of wordShares) {
+  const envelope = decodeWordsEnvelope(words);
+  if (envelope.formatVersion === 2) {
+    // historical share: envelope.payloadKind is always 'opaque', no fingerprint
+  } else {
+    // typed share: envelope.payloadKind and envelope.secretFingerprint are set
+  }
+}
+```
+
 ---
 
 ## GF(256) Arithmetic
@@ -366,13 +541,23 @@ Bytes are packed into 11-bit groups left-to-right. Each 11-bit value indexes int
 
 SHA-256 is computed over the header + data (not including the checksum byte itself). The first byte of the digest is appended as the checksum. This detects single-word transcription errors with 99.6% probability.
 
+### v3 Byte Layout (opt-in, alpha)
+
+```
+[0x00] ['F'] ['S'] [format_version=3] [payload_kind (1 byte)] [data_length (1 byte)]
+[threshold (1 byte)] [share_id (1 byte)] [secret_fingerprint (8 bytes)]
+[data (data_length bytes)] [checksum (4 bytes)]
+```
+
+The leading `0x00` sentinel can never be a valid v2 `data_length` (v2 requires a non-empty share), so `wordsToShareV3()` and `decodeWordsEnvelope()` can distinguish the two formats unambiguously. The `secret_fingerprint` is the first 8 bytes of a domain-separated SHA-256 over the payload kind and the original secret; it is checked again after reconstruction in `reconstructWordsV3()`. The checksum is the first 4 bytes of SHA-256 over every preceding byte.
+
 ---
 
 ## Security Notes
 
 - **Threshold security:** Fewer than `threshold` shares reveal zero information about the secret (information-theoretic security over GF(256)).
 - **Secret size limit:** 255 bytes — constrained by the single-byte length prefix in the wire format.
-- **Memory hygiene:** Polynomial coefficients are zeroed after use (`zeroBytes()`). Share `data` is not explicitly zeroed — the caller should zero sensitive material when done.
+- **Memory hygiene:** the v3 helpers (`shareToWordsV3`, `wordsToShareV3`, `splitSecretToWordsV3`, `reconstructWordsV3`) zero intermediate buffers with `.fill(0)` before returning. `reconstructSecret()`'s output and `ShamirShare.data` are not explicitly zeroed by the library: the caller should zero sensitive material when done.
 - **Reconstruction output:** If given syntactically valid but semantically wrong shares (different secret, wrong order), `reconstructSecret()` produces garbage output without throwing. Verify the result against a known checksum or hash.
 - **Share IDs are 1-indexed:** ID 0 is not a valid GF(256) evaluation point and is rejected by validators.
 
