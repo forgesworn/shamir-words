@@ -13,7 +13,9 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "llms.txt",
+    "llms-full.txt"
   ],
   "scripts": {
     "build": "tsc",
