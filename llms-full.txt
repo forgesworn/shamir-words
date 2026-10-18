@@ -8,10 +8,12 @@ npm: https://www.npmjs.com/package/@forgesworn/shamir-words
 ## Install
 
 ```bash
-npm install @forgesworn/shamir-words
+npm install @forgesworn/shamir-words@alpha
 ```
 
-ESM-only. Runtime dependencies: `@noble/hashes` (SHA-256 checksum), `@scure/bip39` (wordlist). Requires Node.js 18+.
+The v3 typed envelope ships in `1.2.0-alpha.1`, published under the `alpha` dist-tag. A plain `npm install @forgesworn/shamir-words` resolves `latest` (currently `1.1.0`), which has only the v2 functions and none of the `*V3` functions or `decodeWordsEnvelope`. The Quick Start below uses only v2 functions and works on both tags.
+
+ESM-only. Runtime dependencies: `@noble/hashes` (SHA-256 checksum and v3 fingerprint), `@scure/bip39` (wordlist) and `@forgesworn/shamir-core` (GF(256) `splitSecret` and `reconstructSecret`, plus the error classes, all re-exported). Requires Node.js 20.19 or later, the floor declared by `@noble/hashes` v2 (`engines.node: ">= 20.19.0"`); `@forgesworn/shamir-core` declares `>=18` and `@scure/bip39` declares none.
 
 ---
 
@@ -48,7 +50,7 @@ interface ShamirShare {
 }
 ```
 
-`id` is 1-indexed — 0 is not a valid GF(256) evaluation point. The `threshold` is embedded in the wire format so `wordsToShare()` recovers it automatically.
+`id` is 1-indexed: 0 is not a valid GF(256) evaluation point. The `threshold` is embedded in the wire format so `wordsToShare()` recovers it automatically. `ShamirShare` is a type re-exported from `@forgesworn/shamir-core`.
 
 ### `WordSharePayloadKind` (v3, opt-in)
 
@@ -63,14 +65,14 @@ type WordSharePayloadKind =
   | 'forgesworn-recovery-words-v1'
 ```
 
-Labels the meaning of the secret a v3 share set reconstructs. The share bytes themselves stay opaque; this metadata stops a recovered byte string from being fed into the wrong derivation.
+Labels the meaning of the secret a v3 share set reconstructs. The share bytes themselves stay opaque; this metadata stops a recovered byte string from being fed into the wrong derivation. The kind is required wherever v3 shares are made (there is no default); it is bound into the share header and the fingerprint, and the library does not check the secret's contents or length against it. An unrecognised or missing kind throws `ShamirValidationError`.
 
 ### `ShareToWordsV3Options` (v3, opt-in)
 
 ```typescript
 interface ShareToWordsV3Options {
-  payloadKind: WordSharePayloadKind
-  secret: Uint8Array // original secret; hashed only, never placed in a share
+  payloadKind: WordSharePayloadKind // required, no default
+  secret: Uint8Array // original secret, same length as share.data; hashed only, never placed in a share
 }
 ```
 
@@ -80,7 +82,7 @@ interface ShareToWordsV3Options {
 interface DecodedWordsEnvelope {
   formatVersion: 2 | 3        // 2 = historical unversioned layout, 3 = typed envelope
   payloadKind: WordSharePayloadKind
-  secretFingerprint: string | null // null for decoded v2 shares
+  secretFingerprint: string | null // 16 lowercase hex characters for v3, null for decoded v2 shares
   share: ShamirShare
 }
 ```
@@ -90,14 +92,24 @@ interface DecodedWordsEnvelope {
 ```typescript
 interface ReconstructedWordsV3 {
   payloadKind: WordSharePayloadKind
-  secretFingerprint: string
+  secretFingerprint: string // 16 lowercase hex characters
   secret: Uint8Array // caller-owned; the caller must zero-fill it when done
 }
 ```
 
+### `SHAMIR_WORDS_FORMAT_VERSION`
+
+```typescript
+const SHAMIR_WORDS_FORMAT_VERSION: 3
+```
+
+Exported constant: the format version written into every v3 envelope.
+
 ---
 
 ## Functions
+
+Each snippet below calls only functions documented in this file (imported from `@forgesworn/shamir-words`) and defines the values it uses. The full workflows near the end are complete modules.
 
 ### `splitSecret(secret, threshold, shares): ShamirShare[]`
 
@@ -112,9 +124,9 @@ function splitSecret(
 Split a secret into Shamir shares using polynomial interpolation over GF(256).
 
 **Parameters:**
-- `secret` — the bytes to split. Must be a non-empty `Uint8Array`, max 255 bytes.
-- `threshold` — minimum shares required to reconstruct (2–255). Must be `>= 2`.
-- `shares` — total shares to create (threshold–255). Must be `>= threshold`.
+- `secret`: the bytes to split. Must be a non-empty `Uint8Array`. Keep it to 255 bytes or fewer if the shares will be encoded as words.
+- `threshold`: minimum shares required to reconstruct (2–255).
+- `shares`: total shares to create (threshold–255). Must be `>= threshold`.
 
 **Returns:** Array of `ShamirShare` objects with IDs 1 through `shares`.
 
@@ -122,11 +134,13 @@ For each byte of the secret, a random polynomial of degree `threshold - 1` is ge
 
 **Throws** `ShamirValidationError` for:
 - `secret` is not a `Uint8Array`
-- `secret` is empty or exceeds 255 bytes
+- `secret` is empty
 - `threshold` or `shares` are not safe integers
-- `threshold < 2`
+- `threshold` is outside `[2, 255]`
 - `shares < threshold`
 - `shares > 255`
+
+The 255-byte secret limit comes from the single-byte length prefix in the word formats. As of `@forgesworn/shamir-core` 1.0.3, `splitSecret` itself does not check an upper bound; `shareToWords`, `shareToWordsV3` and `splitSecretToWordsV3` throw `ShamirValidationError` for share data longer than 255 bytes.
 
 ```typescript
 const secret = crypto.getRandomValues(new Uint8Array(32)); // 32-byte key
@@ -148,28 +162,33 @@ function reconstructSecret(
 Reconstruct a secret from shares using Lagrange interpolation over GF(256).
 
 **Parameters:**
-- `shares` — array of `ShamirShare` objects. Only the first `threshold` elements are used.
-- `threshold` — the threshold used during splitting. Must match `share.threshold` if set.
+- `shares`: array of `ShamirShare` objects. Only the first `threshold` elements are used; any further shares are ignored and are not validated, so a duplicate ID or bad data beyond that point goes unnoticed.
+- `threshold`: the threshold used during splitting. Must be a safe integer `>= 2`, and must equal `share.threshold` when a used share carries an integer one.
 
 **Returns:** The reconstructed secret bytes (identical to the original when given valid shares).
 
 **Throws** `ShamirValidationError` for:
-- `threshold < 2`
-- Fewer than `threshold` shares provided
-- Invalid share structure (missing `id` or `data`)
-- `share.id` outside `[1, 255]`
+- `threshold` is not a safe integer `>= 2`
+- `shares` is not an array, or fewer than `threshold` shares are provided
+- A used share is not an object (invalid share structure)
+- `share.id` is not an integer in `[1, 255]`
 - `share.data` is not a `Uint8Array`
-- Duplicate share IDs
-- `share.threshold` mismatch (when embedded in share)
-- Inconsistent share data lengths (shares from different secrets)
+- Duplicate share IDs among the used shares
+- `share.threshold` is an integer that differs from the `threshold` argument (threshold mismatch)
+- The used shares have empty data, or data of different lengths (shares from different secrets)
 
 ```typescript
+import { splitSecret, reconstructSecret } from '@forgesworn/shamir-words';
+
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const shares = splitSecret(secret, 3, 5);
+
 // Collect any 3 of 5 shares
-const threeShares = [shares[0], shares[2], shares[4]];
+const threeShares = [shares[0]!, shares[2]!, shares[4]!];
 const recovered = reconstructSecret(threeShares, 3);
 ```
 
-**Note:** Passing incorrect shares (e.g. wrong threshold, corrupted data) produces incorrect output rather than throwing — always verify the recovered secret against a known checksum.
+**Note:** Shares that are structurally valid but wrong (shares from two different splits, or shares whose bytes were altered) produce incorrect output rather than throwing. Always verify the recovered secret against a known checksum, or use `reconstructWordsV3()`, which checks a fingerprint of the original secret.
 
 ---
 
@@ -196,7 +215,11 @@ The byte stream is split into 11-bit groups; each group maps to a word in the st
 **Throws** `ShamirValidationError` for invalid share structure.
 
 ```typescript
-const words = shareToWords(shares[0]);
+import { splitSecret, shareToWords } from '@forgesworn/shamir-words';
+
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const shares = splitSecret(secret, 3, 5);
+const words = shareToWords(shares[0]!);
 // words.length depends on secret length:
 // 32-byte secret → shares have 32 data bytes → ~26 words each
 console.log(words.join(' ')); // "abandon ability able about above..."
@@ -226,7 +249,11 @@ Reverses `shareToWords()`: converts words to 11-bit indices, unpacks bytes, read
 - Checksum mismatch (transcription error)
 
 ```typescript
-const share = wordsToShare(['abandon', 'ability', 'able', ...]);
+import { splitSecret, shareToWords, wordsToShare } from '@forgesworn/shamir-words';
+
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const words = shareToWords(splitSecret(secret, 3, 5)[0]!);
+const share = wordsToShare(words);
 // share.id, share.threshold, share.data all recovered
 ```
 
@@ -260,7 +287,11 @@ Encode a share in the opt-in v3 typed envelope: `[0x00, 'F', 'S', 3, payload_kin
 **Throws** `ShamirValidationError` for an invalid share, an unrecognised `payloadKind`, or a `secret` that is not a `Uint8Array` matching `share.data.length`.
 
 ```typescript
-const words = shareToWordsV3(shares[0], {
+import { splitSecret, shareToWordsV3 } from '@forgesworn/shamir-words';
+
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const shares = splitSecret(secret, 2, 3);
+const words = shareToWordsV3(shares[0]!, {
   payloadKind: 'raw-nsec-v1',
   secret,
 });
@@ -276,7 +307,7 @@ function wordsToShareV3(words: string[]): DecodedWordsEnvelope
 
 Strictly decode a v3 typed share. It never falls back to the v2 format, which makes it the safest entry point when a workflow expects v3.
 
-**Throws** `ShamirValidationError` for a word list too short for a v3 envelope, a missing or wrong magic/sentinel, an unsupported format version or payload kind, a non-canonical word count, or a checksum mismatch.
+**Throws** `ShamirValidationError` for input that is not an array, an empty list or one over 256 words, an unknown word, non-zero padding bits, a word list too short for a v3 envelope, a missing or wrong magic/sentinel (including any v2 share), an unsupported format version or payload kind, a zero data length, a non-canonical word count, a threshold below 2, a share ID of 0, or a checksum mismatch. It cannot check the secret fingerprint, which needs the reconstructed secret; `reconstructWordsV3()` does that.
 
 ---
 
@@ -286,7 +317,7 @@ Strictly decode a v3 typed share. It never falls back to the v2 format, which ma
 function decodeWordsEnvelope(words: string[]): DecodedWordsEnvelope
 ```
 
-Migration decoder that reports whether a word list is historical v2 or typed v3. Existing `wordsToShare()` semantics are unchanged; new ForgeSworn recovery code should prefer strict `wordsToShareV3()` when v3 is already known. A v2 share decodes with `formatVersion: 2`, `payloadKind: 'opaque'`, and `secretFingerprint: null`.
+Migration decoder that reports whether a word list is historical v2 or typed v3. Existing `wordsToShare()` semantics are unchanged; new ForgeSworn recovery code should prefer strict `wordsToShareV3()` when v3 is already known. A word list whose first decoded byte is zero is decoded as v3 (as `wordsToShareV3()` does); anything else is decoded as v2 (as `wordsToShare()` does). A v2 share decodes with `formatVersion: 2`, `payloadKind: 'opaque'`, and `secretFingerprint: null`. Throws `ShamirValidationError` for any rejection of the decoder it dispatches to.
 
 ---
 
@@ -301,9 +332,12 @@ function splitSecretToWordsV3(
 ): string[][]
 ```
 
-Safest v3 entry point: splits a secret and encodes every resulting share with the same payload kind and secret fingerprint in one call. Intermediate share bytes are zeroed before return.
+Safest v3 entry point: splits a secret and encodes every resulting share with the same payload kind and secret fingerprint in one call. Intermediate share bytes are zeroed before return. `options.payloadKind` is required; a missing or unrecognised kind throws `ShamirValidationError`, as do the `splitSecret` parameter errors and a secret longer than 255 bytes.
 
 ```typescript
+import { splitSecretToWordsV3 } from '@forgesworn/shamir-words';
+
+const secret = crypto.getRandomValues(new Uint8Array(32));
 const wordShares = splitSecretToWordsV3(secret, 2, 3, {
   payloadKind: 'forgesworn-recovery-words-v1',
 });
@@ -317,11 +351,17 @@ const wordShares = splitSecretToWordsV3(secret, 2, 3, {
 function reconstructWordsV3(wordShares: string[][]): ReconstructedWordsV3
 ```
 
-Strictly decodes and reconstructs typed v3 shares. Every supplied share must agree on payload kind, threshold, and data length; after reconstruction the fingerprint is checked again, which catches shares mixed across independently randomised split operations.
+Strictly decodes and reconstructs typed v3 shares. Every supplied share must agree on payload kind, secret fingerprint, threshold, and data length; after reconstruction the fingerprint is checked again, which catches shares mixed across independently randomised split operations.
 
-**Throws** `ShamirValidationError` if fewer than one word-share array is supplied, if any share fails `wordsToShareV3()`, if payload kinds, thresholds, or data lengths disagree across shares, or if the reconstructed secret's fingerprint does not match the one embedded in the shares.
+Every word list is decoded and checked for consistency, but only the first `threshold` shares are interpolated (as in `reconstructSecret()`), so order matters when more than `threshold` lists are passed. The final fingerprint check covers the secret reconstructed from those shares.
+
+**Throws** `ShamirValidationError` (every rejection uses this class) if `wordShares` is not an array or is empty, if any word list fails `wordsToShareV3()` (including a v2 share), if payload kinds, secret fingerprints, thresholds, or data lengths disagree across shares, if fewer shares than the threshold are supplied, if share IDs are duplicated among the first `threshold` shares, or if the reconstructed secret's fingerprint does not match the one embedded in the shares.
 
 ```typescript
+import { splitSecretToWordsV3, reconstructWordsV3 } from '@forgesworn/shamir-words';
+
+const secret = crypto.getRandomValues(new Uint8Array(32));
+const wordShares = splitSecretToWordsV3(secret, 2, 3, { payloadKind: 'raw-nsec-v1' });
 const recovered = reconstructWordsV3(wordShares.slice(0, 2));
 // recovered.payloadKind and recovered.secretFingerprint are preserved
 recovered.secret.fill(0); // caller zeroes the secret when done
@@ -365,12 +405,12 @@ class ShamirCryptoError extends ShamirError {
 
 ## Error Handling
 
-All validation failures throw `ShamirValidationError`. Catch errors at system boundaries when processing user-supplied input (word lists from transcription, share data from storage).
+All validation failures throw `ShamirValidationError`, including every v3 rejection. `ShamirCryptoError` is reserved for internal failures (the GF(256) inverse of zero), which valid, distinct share IDs cannot trigger. Catch errors at system boundaries when processing user-supplied input (word lists from transcription, share data from storage).
 
 ### Handling invalid word shares
 
 ```typescript
-import { wordsToShare, ShamirValidationError } from '@forgesworn/shamir-words';
+import { wordsToShare, ShamirValidationError, type ShamirShare } from '@forgesworn/shamir-words';
 
 function loadShareFromUser(words: string[]): ShamirShare | null {
   try {
@@ -395,14 +435,16 @@ function loadShareFromUser(words: string[]): ShamirShare | null {
 ```typescript
 import { splitSecret, ShamirValidationError } from '@forgesworn/shamir-words';
 
+const secret = crypto.getRandomValues(new Uint8Array(32));
+
 try {
   const shares = splitSecret(secret, 1, 3); // threshold < 2
 } catch (err) {
   if (err instanceof ShamirValidationError) {
-    // err.message describes the constraint violation:
-    // "Threshold must be at least 2"
-    // "Shares must be >= threshold"
-    // "Secret must be between 1 and 255 bytes"
+    // err.message describes the constraint violation, for example:
+    // "Threshold must be in [2, 255]"
+    // "Number of shares must be >= threshold"
+    // "Secret must not be empty"
     console.error(err.message);
   }
 }
@@ -417,6 +459,7 @@ import {
   shareToWords,
   wordsToShare,
   ShamirValidationError,
+  type ShamirShare,
 } from '@forgesworn/shamir-words';
 
 // 1. Split a 32-byte key into 5 shares, any 3 to reconstruct
@@ -428,7 +471,7 @@ const wordShares = shares.map(shareToWords);
 // Each word share is ~26 words for a 32-byte secret
 
 // 3. Later: collect any 3 word shares and decode them
-const collectedWords = [wordShares[0], wordShares[2], wordShares[4]];
+const collectedWords = [wordShares[0]!, wordShares[2]!, wordShares[4]!];
 const decodedShares: ShamirShare[] = [];
 
 for (const words of collectedWords) {
@@ -443,8 +486,9 @@ for (const words of collectedWords) {
 }
 
 // 4. Reconstruct (threshold is embedded in shares)
-if (decodedShares.length >= decodedShares[0].threshold) {
-  const recovered = reconstructSecret(decodedShares, decodedShares[0].threshold);
+const first = decodedShares[0];
+if (first && decodedShares.length >= first.threshold) {
+  const recovered = reconstructSecret(decodedShares, first.threshold);
   // Verify: compare recovered against a known hash of the original
 }
 ```
@@ -473,9 +517,10 @@ try {
   recovered.secret.fill(0); // caller must zero the secret when done
 } catch (err) {
   if (err instanceof ShamirValidationError) {
-    // Common causes:
+    // Common causes (all ShamirValidationError):
     // - shares mixed across different split operations (fingerprint mismatch)
     // - shares from different payload kinds or thresholds
+    // - fewer shares than the threshold, or duplicate share IDs
     // - checksum mismatch (corrupted or mistyped words)
     console.error('v3 reconstruction failed:', err.message);
   }
@@ -549,6 +594,18 @@ SHA-256 is computed over the header + data (not including the checksum byte itse
 [data (data_length bytes)] [checksum (4 bytes)]
 ```
 
+The `payload_kind` byte maps to `WordSharePayloadKind` as follows (the codes are not in the order of the type union):
+
+| Code | Payload kind |
+|------|--------------|
+| 0 | `opaque` |
+| 1 | `bip39-entropy` |
+| 2 | `raw-nsec-v1` |
+| 3 | `nsec-tree-root-v1` |
+| 4 | `forgesworn-recovery-words-v1` |
+| 5 | `nsec-tree-mnemonic-v1` |
+| 6 | `nsec-tree-nsec-v1` |
+
 The leading `0x00` sentinel can never be a valid v2 `data_length` (v2 requires a non-empty share), so `wordsToShareV3()` and `decodeWordsEnvelope()` can distinguish the two formats unambiguously. The `secret_fingerprint` is the first 8 bytes of a domain-separated SHA-256 over the payload kind and the original secret; it is checked again after reconstruction in `reconstructWordsV3()`. The checksum is the first 4 bytes of SHA-256 over every preceding byte.
 
 ---
@@ -558,7 +615,7 @@ The leading `0x00` sentinel can never be a valid v2 `data_length` (v2 requires a
 - **Threshold security:** Fewer than `threshold` shares reveal zero information about the secret (information-theoretic security over GF(256)).
 - **Secret size limit:** 255 bytes — constrained by the single-byte length prefix in the wire format.
 - **Memory hygiene:** the v3 helpers (`shareToWordsV3`, `wordsToShareV3`, `splitSecretToWordsV3`, `reconstructWordsV3`) zero intermediate buffers with `.fill(0)` before returning. `reconstructSecret()`'s output and `ShamirShare.data` are not explicitly zeroed by the library: the caller should zero sensitive material when done.
-- **Reconstruction output:** If given syntactically valid but semantically wrong shares (different secret, wrong order), `reconstructSecret()` produces garbage output without throwing. Verify the result against a known checksum or hash.
+- **Reconstruction output:** If given syntactically valid but semantically wrong shares (shares from different splits, or shares with altered bytes), `reconstructSecret()` produces garbage output without throwing; `reconstructWordsV3()` rejects them via its fingerprint check. Verify the result against a known checksum or hash.
 - **Share IDs are 1-indexed:** ID 0 is not a valid GF(256) evaluation point and is rejected by validators.
 
 ---
@@ -605,7 +662,9 @@ For a 64-byte secret (512-bit key):
 | 2 | 3 | 49 |
 | 3 | 5 | 49 |
 
-Words per share = `ceil((3 + secretLength + 1) * 8 / 11)`
+Words per share (v2) = `ceil((3 + secretLength + 1) * 8 / 11)`
+
+v3 shares carry a 16-byte header and a 4-byte checksum, so words per share = `ceil((16 + secretLength + 4) * 8 / 11)`: 38 words for a 32-byte secret.
 
 ---
 

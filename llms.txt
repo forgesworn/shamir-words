@@ -8,18 +8,25 @@
 
 shamir-words is for developers building key backup, social recovery, or
 threshold-access systems who need shares that humans can handle without
-mistakes. It uses only audited cryptographic dependencies (@noble/hashes,
-@scure/bip39) and provides full TypeScript type safety.
+mistakes. It depends on @noble/hashes (SHA-256) and @scure/bip39 (wordlist),
+both audited cryptographic libraries, plus @forgesworn/shamir-core, which
+supplies splitSecret, reconstructSecret and the error classes. It provides full
+TypeScript type safety. ESM only; requires Node.js 20.19 or later.
 
 ## Getting Started
 
 Install:
 
 ```bash
-npm install @forgesworn/shamir-words
+npm install @forgesworn/shamir-words@alpha
 ```
 
-Split and reconstruct:
+The v3 typed envelope ships in 1.2.0-alpha.1, published under the `alpha`
+dist-tag. A plain `npm install @forgesworn/shamir-words` resolves `latest`
+(currently 1.1.0), which has only the v2 functions and none of the `*V3`
+functions or `decodeWordsEnvelope`.
+
+Split and reconstruct (v2 functions only, so this works on both tags):
 
 ```typescript
 import { splitSecret, reconstructSecret, shareToWords, wordsToShare } from '@forgesworn/shamir-words';
@@ -41,17 +48,24 @@ const recovered = reconstructSecret(decoded, 2);  // original secret
 
 ## API Surface
 
-- `splitSecret(secret: Uint8Array, threshold: number, shares: number): ShamirShare[]`: split a secret
-- `reconstructSecret(shares: ShamirShare[], threshold: number): Uint8Array`: reconstruct from shares
+- `splitSecret(secret: Uint8Array, threshold: number, shares: number): ShamirShare[]`: split a secret (re-exported from @forgesworn/shamir-core)
+- `reconstructSecret(shares: ShamirShare[], threshold: number): Uint8Array`: reconstruct from shares; only the first `threshold` shares are used and extras are not validated. Throws `ShamirValidationError` for too few shares, duplicate IDs, an embedded threshold that differs from `threshold`, or inconsistent data lengths. Valid but wrong shares return wrong bytes without throwing
 - `shareToWords(share: ShamirShare): string[]`: encode a share as BIP-39 words (frozen v2 wire format)
 - `wordsToShare(words: string[]): ShamirShare`: decode v2 words back to a share
-- `splitSecretToWordsV3(secret, threshold, shares, { payloadKind }): string[][]`: split and encode as typed v3 shares in one step
-- `reconstructWordsV3(wordShares: string[][]): ReconstructedWordsV3`: strictly decode and reconstruct v3 shares, rejecting mixed or mismatched sets
+- `shareToWordsV3(share: ShamirShare, options: ShareToWordsV3Options): string[]`: encode one share in the v3 envelope; `options.payloadKind` is required and `options.secret` must be the original secret (same length as `share.data`)
+- `wordsToShareV3(words: string[]): DecodedWordsEnvelope`: strictly decode one v3 share; never falls back to v2
+- `splitSecretToWordsV3(secret: Uint8Array, threshold: number, shares: number, options: { payloadKind: WordSharePayloadKind }): string[][]`: split and encode as typed v3 shares in one step
+- `reconstructWordsV3(wordShares: string[][]): ReconstructedWordsV3`: strictly decode and reconstruct v3 shares, rejecting mixed or mismatched sets; only the first `threshold` shares are interpolated
 - `decodeWordsEnvelope(words: string[]): DecodedWordsEnvelope`: migration decoder that reports whether a word list is v2 or v3
+- `SHAMIR_WORDS_FORMAT_VERSION`: constant `3`, the version written into v3 envelopes
 - `ShamirShare`: interface with `id` (1-255), `threshold` (2-255), `data` (Uint8Array)
+- `WordSharePayloadKind`: `'opaque' | 'bip39-entropy' | 'raw-nsec-v1' | 'nsec-tree-root-v1' | 'nsec-tree-mnemonic-v1' | 'nsec-tree-nsec-v1' | 'forgesworn-recovery-words-v1'`; a label bound into v3 shares, required (no default), not checked against the secret
+- `ShareToWordsV3Options`: interface with `payloadKind: WordSharePayloadKind` and `secret: Uint8Array`
+- `DecodedWordsEnvelope`: interface with `formatVersion: 2 | 3`, `payloadKind: WordSharePayloadKind` (always `'opaque'` for v2), `secretFingerprint: string | null` (16 lowercase hex characters for v3, `null` for v2) and `share: ShamirShare`
+- `ReconstructedWordsV3`: interface with `payloadKind`, `secretFingerprint: string` and `secret: Uint8Array` (caller-owned; zero it with `.fill(0)`)
 
-Error classes: `ShamirError`, `ShamirValidationError`, `ShamirCryptoError`.
+Error classes: `ShamirError`, `ShamirValidationError`, `ShamirCryptoError`. Every validation and v3 rejection throws `ShamirValidationError`; `ShamirCryptoError` is reserved for internal GF(256) failures and none of the documented rejections throw it.
 
 ## Optional
 
-Full API reference, wire format layouts, and error-handling recipes: llms-full.txt
+Full API reference, wire format layouts, and error-handling recipes: [llms-full.txt](https://github.com/forgesworn/shamir-words/blob/main/llms-full.txt)

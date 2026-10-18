@@ -1,3 +1,24 @@
+## Unreleased
+
+### Changed
+
+* `engines.node` is now `>=20.19.0`, the floor declared by `@noble/hashes` v2.
+  It was `>=18`, which is below the floor of the `@noble/hashes` v2 dependency.
+
+### Documentation
+
+* show `npm install @forgesworn/shamir-words@alpha` for the v3 envelope, since a
+  plain install resolves `latest` (`1.1.0`), which has only the v2 functions.
+* name `@forgesworn/shamir-core` among the runtime dependencies.
+* define the v3 types and payload kinds (with their wire codes), and document
+  that `payloadKind` is required.
+* document that `reconstructSecret` uses only the first `threshold` shares, and
+  list which inputs throw `ShamirValidationError` (too few shares, duplicate
+  IDs, threshold mismatch, inconsistent data lengths, and every v3 rejection).
+* complete the `llms.txt` API surface (`shareToWordsV3`, `wordsToShareV3`,
+  `SHAMIR_WORDS_FORMAT_VERSION` and the v3 types) and correct `llms-full.txt`
+  where it disagreed with the source.
+
 ## [1.2.0-alpha.1](https://github.com/forgesworn/shamir-words/compare/v1.1.0...v1.2.0-alpha.1) (2026-08-31)
 
 ### Added
