@@ -23,6 +23,7 @@ npm run clean        # remove dist/
 - `@noble/hashes` v2: SHA-256 for wire format checksums and the v3 secret fingerprint
 - `@scure/bip39` v2: BIP-39 wordlist and encoding utilities
 - No other runtime dependencies. Do not introduce homebrew crypto.
+- Node floor: `engines.node` is `>=20.19.0`, the floor declared by `@noble/hashes` v2 (`>= 20.19.0`, checked for the lowest satisfying version, 2.0.1, and the locked 2.4.0). `@forgesworn/shamir-core` declares `>=18` and `@scure/bip39` declares none. The dev toolchain is stricter: vitest 5 declares `^22.12.0 || ^24.0.0 || >=26.0.0`, and CI runs Node 24. Re-check these `engines` fields when bumping dependencies.
 
 ## Repository Structure
 
@@ -31,6 +32,8 @@ src/
   index.ts           # entire library: word encoding/decoding, v3 envelope; re-exports split/reconstruct from @forgesworn/shamir-core
 tests/
   index.test.ts      # comprehensive vitest suite
+llms.txt             # short AI-facing API summary; keep in step with src/index.ts and README.md
+llms-full.txt        # full API reference and wire format; keep in step with src/index.ts
 dist/                # build output; gitignored, not committed, built by `npm run build` for CI and for publishing
 examples/            # usage examples
 ```
@@ -42,7 +45,7 @@ examples/            # usage examples
 - **Strict TypeScript**: `noUncheckedIndexedAccess` and strict mode enabled
 - **Error hierarchy**: throw `ShamirValidationError` for bad inputs, `ShamirCryptoError` for internal failures; both extend `ShamirError`
 - **Zero secrets in memory**: buffers holding secret or share bytes are zeroed with `.fill(0)` after use (see `shareToWordsV3`, `reconstructWordsV3`); the polynomial zeroing inside `splitSecret`/`reconstructSecret` lives in the `@forgesworn/shamir-core` dependency
-- **Audited dependencies only**: `@noble/hashes` v2 and `@scure/bip39` v2; never introduce homebrew crypto
+- **Audited dependencies only**: `@noble/hashes` v2 and `@scure/bip39` v2 for hashing and the wordlist, with GF(256) split and reconstruct supplied by `@forgesworn/shamir-core`; never introduce homebrew crypto
 
 ## Wire Formats
 
@@ -75,6 +78,8 @@ Release flow:
 4. Tag the commit (`git tag v1.1.0 && git push --tags`)
 5. Create a GitHub Release pointing at the tag; the workflow replaces the body from `CHANGELOG.md` and appends an artefact integrity block
 6. The release workflow runs pre-publish gates (tag match, secret scan over `dist/` + `src/`, exports sanity, runtime audit) and publishes to npm with SLSA provenance via OIDC trusted publishing
+
+While the version is a prerelease published under the `alpha` tag, a plain `npm install @forgesworn/shamir-words` resolves `latest`, which lacks the v3 functions. README.md, llms.txt and llms-full.txt therefore show `npm install @forgesworn/shamir-words@alpha`; revert those install lines when promoting to a stable release.
 
 Prereleases must set `publishConfig.tag` (this package currently publishes under the `alpha` tag) so they cannot move npm's `latest` tag.
 
