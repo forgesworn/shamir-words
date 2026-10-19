@@ -1,6 +1,6 @@
 # shamir-words
 
-> **Alpha:** the opt-in v3 typed envelope is shipping as `1.2.0-alpha.1` for
+> **Alpha:** the opt-in v3 typed envelope (from `1.2.0`) is for
 > integration testing. Automated and cross-repository tests pass, but the full
 > paper-share and Heartwood hardware restore ceremony has not run. Existing v2
 > shares remain unchanged; use v3 with test secrets and keep another backup.
@@ -27,15 +27,12 @@ Backing up cryptographic keys is hard. Raw byte shares are error-prone to transc
 ## Install
 
 ```bash
-npm install @forgesworn/shamir-words@alpha
+npm install @forgesworn/shamir-words
 ```
 
-The v3 typed envelope ships in `1.2.0-alpha.1`, which is published under the
-`alpha` dist-tag. A plain `npm install @forgesworn/shamir-words` resolves the
-`latest` tag (currently `1.1.0`), which has only the v2 functions
-(`splitSecret`, `reconstructSecret`, `shareToWords`, `wordsToShare`) and none
-of the `*V3` functions or `decodeWordsEnvelope`. Install `@alpha`, or pin
-`@forgesworn/shamir-words@1.2.0-alpha.1`, to use v3.
+The v3 typed envelope (the `*V3` functions and `decodeWordsEnvelope`) needs
+`1.2.0` or later. `1.1.0` and earlier have only the v2 functions
+(`splitSecret`, `reconstructSecret`, `shareToWords`, `wordsToShare`).
 
 ESM only. Requires Node.js 20.19 or later, the floor set by `@noble/hashes` v2.
 

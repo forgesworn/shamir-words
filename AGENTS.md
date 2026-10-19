@@ -79,9 +79,9 @@ Release flow:
 5. Create a GitHub Release pointing at the tag; the workflow replaces the body from `CHANGELOG.md` and appends an artefact integrity block
 6. The release workflow runs pre-publish gates (tag match, secret scan over `dist/` + `src/`, exports sanity, runtime audit) and publishes to npm with SLSA provenance via OIDC trusted publishing
 
-While the version is a prerelease published under the `alpha` tag, a plain `npm install @forgesworn/shamir-words` resolves `latest`, which lacks the v3 functions. README.md, llms.txt and llms-full.txt therefore show `npm install @forgesworn/shamir-words@alpha`; revert those install lines when promoting to a stable release.
+The v3 typed envelope first shipped in `1.2.0`; `1.1.0` and earlier lack the v3 functions. v3 is still alpha: the paper-share and Heartwood hardware restore ceremony has not run.
 
-Prereleases must set `publishConfig.tag` (this package currently publishes under the `alpha` tag) so they cannot move npm's `latest` tag.
+Prereleases must set `publishConfig.tag` (for example `alpha`) so they cannot move npm's `latest` tag.
 
 Semver rules of thumb:
 

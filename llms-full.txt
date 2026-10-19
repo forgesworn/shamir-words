@@ -8,10 +8,10 @@ npm: https://www.npmjs.com/package/@forgesworn/shamir-words
 ## Install
 
 ```bash
-npm install @forgesworn/shamir-words@alpha
+npm install @forgesworn/shamir-words
 ```
 
-The v3 typed envelope ships in `1.2.0-alpha.1`, published under the `alpha` dist-tag. A plain `npm install @forgesworn/shamir-words` resolves `latest` (currently `1.1.0`), which has only the v2 functions and none of the `*V3` functions or `decodeWordsEnvelope`. The Quick Start below uses only v2 functions and works on both tags.
+The v3 typed envelope (the `*V3` functions and `decodeWordsEnvelope`) needs `1.2.0` or later; `1.1.0` and earlier have only the v2 functions. The Quick Start below uses only v2 functions, so it also works on `1.1.0`.
 
 ESM-only. Runtime dependencies: `@noble/hashes` (SHA-256 checksum and v3 fingerprint), `@scure/bip39` (wordlist) and `@forgesworn/shamir-core` (GF(256) `splitSecret` and `reconstructSecret`, plus the error classes, all re-exported). Requires Node.js 20.19 or later, the floor declared by `@noble/hashes` v2 (`engines.node: ">= 20.19.0"`); `@forgesworn/shamir-core` declares `>=18` and `@scure/bip39` declares none.
 

@@ -1,4 +1,8 @@
-## Unreleased
+## [1.2.0](https://github.com/forgesworn/shamir-words/compare/v1.1.0...v1.2.0) (2026-10-19)
+
+Promotes `1.2.0-alpha.1` to `latest`, with the changes below. The v3 typed
+envelope is still alpha: the paper-share and Heartwood hardware restore
+ceremony has not run. Use v3 with test secrets and keep another backup.
 
 ### Changed
 
@@ -7,8 +11,8 @@
 
 ### Documentation
 
-* show `npm install @forgesworn/shamir-words@alpha` for the v3 envelope, since a
-  plain install resolves `latest` (`1.1.0`), which has only the v2 functions.
+* say that the v3 envelope needs `1.2.0` or later; `1.1.0` and earlier have
+  only the v2 functions.
 * name `@forgesworn/shamir-core` among the runtime dependencies.
 * define the v3 types and payload kinds (with their wire codes), and document
   that `payloadKind` is required.
