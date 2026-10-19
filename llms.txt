@@ -18,15 +18,13 @@ TypeScript type safety. ESM only; requires Node.js 20.19 or later.
 Install:
 
 ```bash
-npm install @forgesworn/shamir-words@alpha
+npm install @forgesworn/shamir-words
 ```
 
-The v3 typed envelope ships in 1.2.0-alpha.1, published under the `alpha`
-dist-tag. A plain `npm install @forgesworn/shamir-words` resolves `latest`
-(currently 1.1.0), which has only the v2 functions and none of the `*V3`
-functions or `decodeWordsEnvelope`.
+The v3 typed envelope (the `*V3` functions and `decodeWordsEnvelope`) needs
+1.2.0 or later; 1.1.0 and earlier have only the v2 functions.
 
-Split and reconstruct (v2 functions only, so this works on both tags):
+Split and reconstruct (v2 functions only, so this also works on 1.1.0):
 
 ```typescript
 import { splitSecret, reconstructSecret, shareToWords, wordsToShare } from '@forgesworn/shamir-words';
