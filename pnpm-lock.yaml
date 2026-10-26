@@ -10,7 +10,7 @@ importers:
     dependencies:
       '@forgesworn/shamir-core':
         specifier: ^1.0.0
-        version: 1.0.3
+        version: 1.0.5
       '@noble/hashes':
         specifier: ^2.0.1
         version: 2.4.0
@@ -39,9 +39,9 @@ packages:
   '@emnapi/wasi-threads@1.2.1':
     resolution: {integrity: sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==}
 
-  '@forgesworn/shamir-core@1.0.3':
-    resolution: {integrity: sha512-xtq5zSWIKjJFItVl39IlwntT20EyRzcF7/RaLRPVCqyxWinQUvrR7SPCcbuxVVNFpt/scDgkqcTfSX5www0XVQ==}
-    engines: {node: '>=18'}
+  '@forgesworn/shamir-core@1.0.5':
+    resolution: {integrity: sha512-8aeQpuu6UIcakgjqLb3WeLPeCefqU03bJdskhuxYQCDS2E7gGWQh+oayNME1jCh3ihPNf7IIzk+Ln+IabuZzKw==}
+    engines: {node: '>=19'}
 
   '@jridgewell/resolve-uri@3.1.2':
     resolution: {integrity: sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==}
@@ -472,7 +472,7 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@forgesworn/shamir-core@1.0.3': {}
+  '@forgesworn/shamir-core@1.0.5': {}
 
   '@jridgewell/resolve-uri@3.1.2': {}
 
